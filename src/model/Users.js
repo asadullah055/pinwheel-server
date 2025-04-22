@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema(
     profileImageUrl: { type: String, default: null },
     shopLogo: { type: String, default: null },
     otp: { type: String, default: "0" },
-    role: { type: String, default: "" },
+    role: { type: String, enum: ['user', 'admin'], default: "" },
   },
   { timestamps: true, versionKey: false }
 );

@@ -1,7 +1,7 @@
 const formidable = require("formidable");
 const createError = require("http-errors");
 const Category = require("../model/Category");
-const { successMessage } = require("../util/response");
+const { successMessage } = require("../utils/response");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createCategory = async (req, res, next) => {

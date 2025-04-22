@@ -1,19 +1,24 @@
 const formidable = require("formidable");
 const Brand = require("../model/Brand");
 const createError = require("http-errors");
-const { successMessage } = require("../util/response");
+const { successMessage } = require("../utils/response");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createBrand = async (req, res, next) => {
+ 
   const form = formidable();
+
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
       throw createError(401, "Error parsing form data");
     }
+   
+    
     try {
       let { name } = fields;
       let { image } = files;
+  
 
       if (!name || !image) {
         throw createError(400, "Brand name and image are required");

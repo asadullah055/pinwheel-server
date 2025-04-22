@@ -1,12 +1,13 @@
 const createError = require("http-errors");
 const Users = require("../model/Users");
 const bcrypt = require("bcryptjs");
-const { successMessage } = require("../util/response");
+const { successMessage } = require("../utils/response");
 const jwt = require("jsonwebtoken");
+const { accessSecretKey } = require("../../secret");
 // Generate JWT Token
 
 const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ id: userId }, accessSecretKey, { expiresIn: "7d" });
 };
 
 const register = async (req, res, next) => {
@@ -33,7 +34,6 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-
     const user = await Users.findOne({ email }).select("+password");
     if (!user) {
       throw createError(401, "Invalid email or password.");
@@ -42,11 +42,11 @@ const login = async (req, res, next) => {
     if (!isPasswordValid) {
       throw createError(401, "Invalid email or password.");
     }
-    let options = {
-      maxAge: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // would expire in 7days
-      httpOnly: true, // The cookie is only accessible by the web server
-      secure: true,
-      sameSite: "None",
+    const options = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     };
     const token = generateToken(user._id);
     res.cookie("accessToken", token, options);
@@ -61,8 +61,6 @@ const login = async (req, res, next) => {
 };
 const logout = async (req, res, next) => {
   try {
-    console.log(req);
-    
     res.clearCookie("accessToken");
     successMessage(res, 200, { message: "Logout successfully" });
   } catch (error) {
