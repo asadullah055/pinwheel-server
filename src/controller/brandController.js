@@ -5,20 +5,16 @@ const { successMessage } = require("../utils/response");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createBrand = async (req, res, next) => {
- 
   const form = formidable();
-
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
       throw createError(401, "Error parsing form data");
     }
-   
-    
+
     try {
       let { name } = fields;
       let { image } = files;
-  
 
       if (!name || !image) {
         throw createError(400, "Brand name and image are required");
@@ -30,7 +26,7 @@ const createBrand = async (req, res, next) => {
       const existingBrand = await Brand.findOne({
         name: { $regex: `^${name}$`, $options: "i" }, // Case-insensitive match
       });
-     if (existingBrand) {
+      if (existingBrand) {
         return next(createError(400, "Brand name already exists"));
       }
       // Upload image to Cloudinary
@@ -57,16 +53,33 @@ const createBrand = async (req, res, next) => {
 };
 const getAllBrands = async (req, res, next) => {
   try {
-    const brands = await Brand.find();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const totalBrands = await Brand.countDocuments();
+
+    const brands = await Brand.find().skip(skip).limit(limit);
+
+    if (!brands || brands.length === 0) {
+      return successMessage(res, 200, {
+        message: "No brands found",
+        brands: [],
+        totalBrands: 0,
+      });
+    }
+
     return successMessage(res, 200, {
       message: "Brands fetched successfully",
       brands,
+      totalBrands,
     });
   } catch (error) {
     console.error(error);
     next(error);
   }
 };
+
 const getBrandById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -82,7 +95,7 @@ const getBrandById = async (req, res, next) => {
     console.error(error);
     next(error);
   }
-}
+};
 const updateBrand = async (req, res, next) => {
   const form = formidable();
 
@@ -139,8 +152,10 @@ const deleteBrand = async (req, res, next) => {
   }
 };
 
-
-
-module.exports = { createBrand, getAllBrands,getBrandById, updateBrand, deleteBrand };
- 
-
+module.exports = {
+  createBrand,
+  getAllBrands,
+  getBrandById,
+  updateBrand,
+  deleteBrand,
+};

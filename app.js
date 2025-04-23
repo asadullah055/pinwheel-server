@@ -33,13 +33,13 @@ app.get("/", (req, res) => {
 });
 
 
-connectDB();
+
 
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/brand', brandRoutes)
 app.use('/api/category', categoryRoutes)
-
+connectDB();
 app.use((req, res, next) => {
   next(createError(404, "router not found"));
 });

@@ -53,19 +53,30 @@ const createCategory = async (req, res, next) => {
   });
 };
 const getAllCategories = async (req, res, next) => {
-    console.log('hello');
-    
   try {
-    const categories = await Category.find({});
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const totalCategories = await Category.countDocuments();
+    const categories = await Category.find({}).skip(skip).limit(limit);
+    if (!categories || categories.length === 0) {
+      return successMessage(res, 200, {
+        message: "No categories found",
+        categories: [],
+        totalCategories: 0,
+      });
+    }
     return successMessage(res, 200, {
       message: "Categories fetched successfully",
       categories,
+      totalCategories,
     });
   } catch (error) {
     console.error(error);
     next(error);
   }
 };
+
 const getCategoryById = async (req, res, next) => {
   try {
     const { id } = req.params;
