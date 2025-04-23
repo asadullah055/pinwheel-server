@@ -15,14 +15,11 @@ const app = express();
     max: 50,
     message: "Too many request from this API",
   }); */
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    return callback(null, true);
-  },
-  credentials: true,
-  optionsSuccessStatus: 200,
-};
+  const corsOptions = {
+    origin: ['http://localhost:5173/', 'https://pinwheel-dash.vercel.app/'],
+    credentials: true,
+    optionsSuccessStatus: 200,
+  };
 app.use(cors(corsOptions));
 // app.use(rateLimiter);
 app.use(express.json());
