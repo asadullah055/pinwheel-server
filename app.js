@@ -15,10 +15,22 @@ const app = express();
     max: 50,
     message: "Too many request from this API",
   }); */
+  const allowedOrigins = [
+    "https://pinwheel-dash.vercel.app",
+    "http://localhost:5173", // your local frontend
+  ];
+  
   const corsOptions = {
-    origin: "*",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   };
+  
 app.use(cors(corsOptions));
 // app.use(rateLimiter);
 app.use(express.json());
