@@ -76,6 +76,24 @@ const getAllCategories = async (req, res, next) => {
     next(error);
   }
 };
+const dropdownCategories = async (req, res, next) => {
+  try {
+    
+    const categories = await Category.find({});
+    if (!categories || categories.length === 0) {
+      return successMessage(res, 200, {
+        message: "No categories found",    
+      });
+    }
+    return successMessage(res, 200, {
+      message: "Categories fetched successfully",
+      categories,
+    });
+  } catch (error) {
+    console.error(error);
+    next(error);
+  }
+};
 
 const getCategoryById = async (req, res, next) => {
   try {
@@ -165,4 +183,5 @@ module.exports = {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  dropdownCategories
 };

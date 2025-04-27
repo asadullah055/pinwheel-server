@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 
 export const MetaDataSchema = new mongoose.Schema(
   {
-    title: {
+    metaTitle: {
       type: String,
     },
-    description: {
+    metaDescription: {
       type: String,
     },
   },

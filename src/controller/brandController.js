@@ -79,6 +79,25 @@ const getAllBrands = async (req, res, next) => {
     next(error);
   }
 };
+const dropdownBrands = async (req, res, next) => {
+  try {
+    
+    const brands = await Brand.find();
+
+    if (!brands || brands.length === 0) {
+      return successMessage(res, 200, {
+        message: "No brands found",
+      });
+    }
+    return successMessage(res, 200, {
+      message: "Brands fetched successfully",
+      brands,
+    });
+  } catch (error) {
+    console.error(error);
+    next(error);
+  }
+};
 
 const getBrandById = async (req, res, next) => {
   try {
@@ -158,4 +177,5 @@ module.exports = {
   getBrandById,
   updateBrand,
   deleteBrand,
+  dropdownBrands
 };

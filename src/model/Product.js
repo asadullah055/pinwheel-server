@@ -21,16 +21,25 @@ const discountSchema = new mongoose.Schema(
 
 const ProductSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    title: { type: String, required: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     images: [{ type: String, default: null }],
     brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand" },
     description: { type: String, required: true },
-    price: { type: Number, required: true },
+    shortDescription: { type: String, default: null },
+    regularPrice: { type: Number, required: true },
     stock: { type: Number, default: 0 },
-    discount: { type: discountSchema, default: null },
+    discountPrice: { type: Number, default: null },
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     slug: { type: String, default: "" },
+    packageHeight: { type: String, default: null },
+    packageWeight: { type: String, default: null },
+    packageWidth: { type: String, default: null },
+    packageLength: { type: String, default: null },
+    // tags: [{ type: String, default: null }],
+    warrantyPolicy: { type: String, default: null },
+    warrantyTime: { type: String, default: null },
+    warrantyType: { type: String, default: null },
     status: {
       type: String,
       enum: ["published", "unpublished"],
@@ -44,34 +53,35 @@ const ProductSchema = new mongoose.Schema(
   { timestamps: true, versionKey: false }
 );
 ProductSchema.pre("save", function (next) {
-  if (this.isModified("name")) {
-    this.slug = this.name.toLowerCase().replace(/ /g, "-");
+  if (this.isModified("title")) {
+    this.slug = this.title.toLowerCase().replace(/ /g, "-");
   }
   next();
 });
 ProductSchema.pre("updateOne", function (next) {
-  if (this._update.name) {
-    this._update.slug = this._update.name.toLowerCase().replace(/ /g, "-");
+  if (this._update.title) {
+    this._update.slug = this._update.title.toLowerCase().replace(/ /g, "-");
   }
   next();
 });
 ProductSchema.pre("findOneAndUpdate", function (next) {
-  if (this._update.name) {
-    this._update.slug = this._update.name.toLowerCase().replace(/ /g, "-");
+  if (this._update.title) {
+    this._update.slug = this._update.title.toLowerCase().replace(/ /g, "-");
   }
   next();
 });
 
+
 ProductSchema.index(
   {
-    name: "text",
+    title: "text",
     description: "text",
     "category.name": "text",
     "brand.name": "text",
   },
   {
     weights: {
-      name: 5,
+      title: 5,
       description: 2,
       "category.name": 3,
       "brand.name": 4,

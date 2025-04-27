@@ -8,6 +8,7 @@ const { errorMessage } = require("./src/utils/response");
 const authRoutes = require('./src/routes/authRoutes')
 const brandRoutes = require('./src/routes/brandRoutes')
 const categoryRoutes = require('./src/routes/categoryRoutes')
+const productRoutes = require('./src/routes/productRoutes')
 const app = express();
 
 /* const rateLimiter = rateLimit({
@@ -47,6 +48,7 @@ app.get("/", (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/brand', brandRoutes)
 app.use('/api/category', categoryRoutes)
+app.use('/api/product', productRoutes)
 connectDB();
 app.use((req, res, next) => {
   next(createError(404, "router not found"));

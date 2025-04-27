@@ -5,6 +5,7 @@ const {
   deleteCategory,
   getCategoryById,
   updateCategory,
+  dropdownCategories,
 } = require("../controller/categoryController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
@@ -12,6 +13,8 @@ const router = express.Router();
 
 // Route to get all categories
 router.get("/getAllCategory", getAllCategories);
+
+router.get("/dropdownCategories", dropdownCategories);
 
 // Route to get a single category by ID
 router.get("/:id", getCategoryById);

@@ -1,12 +1,13 @@
 const express = require('express');
 
 const { protect, adminOnly } = require('../middleware/authMiddleware');
-const { createBrand, getAllBrands, getBrandById, updateBrand, deleteBrand } = require('../controller/brandController');
+const { createBrand, getAllBrands, getBrandById, updateBrand, deleteBrand, dropdownBrands } = require('../controller/brandController');
 
 const router = express.Router();
 
 // Get all brands
 router.get('/getAllBrands', getAllBrands);
+router.get('/dropdownBrands', dropdownBrands);
 
 // Get a single brand by ID
 router.get('/:id', getBrandById);
