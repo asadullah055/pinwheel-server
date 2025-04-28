@@ -5,8 +5,8 @@ const formidable = require("formidable");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createProduct = async (req, res, next) => {
-    console.log("Creating product...");
-    
+
+
   const form = formidable({ multiples: true });
 
   form.parse(req, async (err, fields, files) => {
@@ -16,31 +16,48 @@ const createProduct = async (req, res, next) => {
       let {
         title,
         description,
-        price,
+        shortDescription,
+        regularPrice,
         stock,
         category,
         brand,
-        shortDescription,
-        tags,
-        unit,
-        warranty,
-        discountType,
-        discountValue,
+        discountPrice,
+        slug,
+        packageHeight,
+        packageWeight,
+        packageWidth,
+        packageLength,
+        warrantyPolicy,
+        warrantyTime,
+        warrantyType,
         status,
+        metaTitle,
+        metaDescription,
+        
+        // images
       } = fields;
+      // let { images } = files;
       let { images } = files;
 
+      // console.log("Form fields:", fields);
       // Required field check
-      if (!title || !description || !price || !stock || !category || !brand) {
+      if (
+        !title ||
+        !description ||
+        !regularPrice ||
+        !stock ||
+        !category ||
+        !brand
+      ) {
         return next(createError(400, "All required fields must be filled"));
       }
 
       title = title.trim();
       description = description.trim();
-      price = parseFloat(price);
+      regularPrice = parseFloat(regularPrice);
       stock = parseInt(stock);
 
-      if (isNaN(price) || isNaN(stock)) {
+      if (isNaN(regularPrice) || isNaN(stock)) {
         return next(createError(400, "Price and stock must be numbers"));
       }
 
@@ -61,39 +78,39 @@ const createProduct = async (req, res, next) => {
           )
         : [];
 
-      // Construct discount object if provided
-      let discount = null;
-      if (discountType && discountValue) {
-        discount = {
-          type: discountType,
-          value: parseFloat(discountValue),
-        };
-      }
-
       // Create product
       const product = await Product.create({
         title,
         description,
-        price,
+        shortDescription: shortDescription || null,
+        regularPrice,
         stock,
         category,
         brand,
-        images: imageUrls,
+        discountPrice: discountPrice ? parseFloat(discountPrice) : null,
         creator: req.id,
-        shortDescription: shortDescription || null,
-        tags: tags ? (Array.isArray(tags) ? tags : [tags]) : [],
-        unit: unit || null,
-        warranty: warranty || null,
-        discount,
+        slug: slug || "",
+        packageHeight: packageHeight || null,
+        packageWeight: packageWeight || null,
+        packageWidth: packageWidth || null,
+        packageLength: packageLength || null,
+        warrantyPolicy: warrantyPolicy || null,
+        warrantyTime: warrantyTime || null,
+        warrantyType: warrantyType || null,
         status: status || "unpublished",
+        images: imageUrls,
+        metaData: {
+          metaDescription,
+          metaTitle,
+        },
+       
       });
-
       return successMessage(res, 200, {
         message: "Product created successfully",
         product,
       });
     } catch (error) {
-      console.error(error);
+      console.log(error);
       next(error);
     }
   });
