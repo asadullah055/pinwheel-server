@@ -381,10 +381,9 @@ const getProductsByCreator = async (req, res, next) => {
 }
 const updatePriceAndStock = async (req, res, next) => {
   try {
-    // const { id } = req.params;
     const { regularPrice, discountPrice, stock, id } = req.body;
-    // Check if the product ID is provided
-   
+// console.log(req.body);
+
     // Validation for regularPrice
     if (regularPrice !== undefined) {
       if (isNaN(regularPrice)) {
@@ -395,7 +394,7 @@ const updatePriceAndStock = async (req, res, next) => {
       }
     }
 
-    // Validation for discountPrice
+    // Validation for discountPrice (optional)
     if (discountPrice !== undefined) {
       if (isNaN(discountPrice)) {
         return next(createError(400, "Discount price must be a number"));
@@ -405,7 +404,7 @@ const updatePriceAndStock = async (req, res, next) => {
       }
     }
 
-    // Check: regularPrice > discountPrice
+    // If both prices are provided, validate the logical relationship
     if (
       regularPrice !== undefined &&
       discountPrice !== undefined &&
@@ -425,9 +424,9 @@ const updatePriceAndStock = async (req, res, next) => {
     }
 
     const updateFields = {};
-    if (regularPrice !== undefined) updateFields.regularPrice = regularPrice;
-    if (discountPrice !== undefined) updateFields.discountPrice = discountPrice;
-    if (stock !== undefined) updateFields.stock = stock;
+    if (regularPrice !== undefined) updateFields.regularPrice = Number(regularPrice);
+    if (discountPrice !== undefined) updateFields.discountPrice = Number(discountPrice);
+    if (stock !== undefined) updateFields.stock = Number(stock);
 
     const product = await Product.findByIdAndUpdate(
       id,
@@ -439,7 +438,7 @@ const updatePriceAndStock = async (req, res, next) => {
       return next(createError(404, "Product not found"));
     }
 
-    let messageParts = [];
+    const messageParts = [];
     if (regularPrice !== undefined || discountPrice !== undefined) {
       messageParts.push("Price updated successfully");
     }
@@ -460,10 +459,12 @@ const updatePriceAndStock = async (req, res, next) => {
 
 
 
+
 module.exports = {
   createProduct,
   getAllProducts,
   getProductById,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  updatePriceAndStock
 };
