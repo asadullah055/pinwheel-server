@@ -1,11 +1,12 @@
 const jwt = require("jsonwebtoken");
 const createError = require("http-errors");
-const { accessSecretKey} = require("../../secret");
+const { accessSecretKey } = require("../../secret");
 const Users = require("../model/Users");
 
 const protect = async (req, res, next) => {
   try {
     const token = req.cookies.accessToken;
+ 
 
     if (!token) {
       throw createError(401, "Access token not found. Please log in.");
@@ -13,10 +14,14 @@ const protect = async (req, res, next) => {
 
     // Verify token and extract user data
     const decoded = jwt.verify(token, accessSecretKey);
-    const user = await Users.findById(decoded.id).select("-password");
-    req.id = user.id;
-    req.email = user.email;
-    req.role = user.role;
+ 
+
+    if (!decoded) {
+      throw createError(404, "Invalid Access token. Please Log in");
+    }
+    req.id = decoded.id;
+    req.email = decoded.email;
+    req.role = decoded.role;
     next();
   } catch (error) {
     console.log(error);

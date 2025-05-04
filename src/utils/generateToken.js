@@ -1,10 +1,10 @@
 const jwt = require('jsonwebtoken');
 const { accessSecretKey, refreshSecretKey } = require('../../secret');
 
-exports.generateAccessToken = (user) => {
-  return jwt.sign({ id: user._id, role: user.role }, accessSecretKey, { expiresIn: "15m" });
+exports.generateAccessToken =async (user) => {
+  return await jwt.sign({email: user?.email, id: user._id, role: user.role }, accessSecretKey, { expiresIn: "15m" });
 };
 
-exports.generateRefreshToken = (user) => {
-  return jwt.sign({ id: user._id }, refreshSecretKey, { expiresIn: "7d" });
+exports.generateRefreshToken = async(user) => {
+  return await jwt.sign({ email: user?.email, id: user._id, role: user.role  }, refreshSecretKey, { expiresIn: "30d" });
 };

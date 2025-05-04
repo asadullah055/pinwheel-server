@@ -6,7 +6,7 @@ const { createBrand, getAllBrands, getBrandById, updateBrand, deleteBrand, dropd
 const router = express.Router();
 
 // Get all brands
-router.get('/getAllBrands', getAllBrands);
+router.get('/getAllBrands', protect, getAllBrands);
 router.get('/dropdownBrands', dropdownBrands);
 
 // Get a single brand by ID
