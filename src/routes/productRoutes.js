@@ -13,7 +13,8 @@ const { protect, adminOnly } = require("../middleware/authMiddleware");
 const router = express.Router();
 
 // Route to get all products
-router.get("/getAllProducts", protect, adminOnly, getAllProducts);   
+router.get("/getAllProducts", protect, getAllProducts);   
+router.get("/publicProducts",  getAllProducts);   
 router.get("/:id",protect, adminOnly, getProductById); 
 router.post("/create", protect, adminOnly, createProduct); 
 router.put("/updatePrice", protect, adminOnly, updatePriceAndStock); 

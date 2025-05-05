@@ -5,7 +5,7 @@ module.exports = (res, accessToken, refreshToken) => {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'None' : 'Lax',
-      maxAge: 15 * 60 * 1000,
+      maxAge: 1 * 60 * 1000,
     });
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,

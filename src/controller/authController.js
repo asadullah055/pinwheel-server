@@ -13,23 +13,21 @@ const { refreshSecretKey } = require("../../secret");
 
 const register = async (req, res, next) => {
   try {
-    const { email, password, name, profileImageUrl, shopLogo, role } = req.body;
+    const { email, password, name, role } = req.body;
     const newUser = new Users({
       name,
       email,
       password,
-      profileImageUrl,
-      shopLogo,
       role,
     });
+    const exitEmail = await Users.exists({ email: email});
     const exitUser = await Users.exists({ email: email, role: role });
-    if (exitUser) {
+    if (exitUser || exitEmail) {
       throw createError(409, "User Already Exit");
     }
     const user = await newUser.save();
     successMessage(res, 200, { user, message: "Registration Success" });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -47,11 +45,13 @@ const login = async (req, res, next) => {
 
     const accessToken = await generateAccessToken(user);
     const refreshToken = await generateRefreshToken(user);
-   
-    sendToken(res, accessToken, refreshToken);
 
+    sendToken(res, accessToken, refreshToken);
+    const userWithout = await Users.findOne({ email }).select(
+      "-password -createdAt -updatedAt -refreshToken -otp"
+    );
     successMessage(res, 200, {
-      user,
+      user: userWithout,
       message: "Login success",
     });
   } catch (error) {
@@ -71,7 +71,6 @@ const logout = async (req, res, next) => {
 
 const refreshAccessToken = async (req, res) => {
   const token = req.cookies.refreshToken;
-  
 
   if (!token) {
     throw createError(401, "Token Not Found");

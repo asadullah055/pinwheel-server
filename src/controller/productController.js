@@ -118,20 +118,32 @@ const getAllProducts = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const totalProducts = await Product.countDocuments();
+    let filter = {};
 
-    const products = await Product.find()
+    if (req.id) {
+
+      if (req.role === "seller") {
+        filter.creator = req.id; 
+      }
+    } else {
+      filter.status = "published";
+    }
+    
+    const totalProducts = await Product.countDocuments(filter);
+
+    const products = await Product.find(filter)
       .populate("category", "name")
       .populate("brand", "name")
       .populate("creator", "name email")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
+
     if (!products || products.length === 0) {
       return successMessage(res, 200, {
         message: "No Products found",
-        brands: [],
-        totalBrands: 0,
+        products: [],
+        totalProducts: 0,
       });
     }
 
@@ -145,6 +157,7 @@ const getAllProducts = async (req, res, next) => {
     next(error);
   }
 };
+
 // get product by id
 const getProductById = async (req, res, next) => {
   try {
