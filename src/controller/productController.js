@@ -121,14 +121,13 @@ const getAllProducts = async (req, res, next) => {
     let filter = {};
 
     if (req.id) {
-
       if (req.role === "seller") {
-        filter.creator = req.id; 
+        filter.creator = req.id;
       }
     } else {
       filter.status = "published";
     }
-    
+
     const totalProducts = await Product.countDocuments(filter);
 
     const products = await Product.find(filter)
@@ -186,6 +185,24 @@ const updateProduct = async (req, res, next) => {
 
     try {
       const { id } = req.params;
+      const currentUserId = req.id;
+      const currentUserRole = req.role;
+
+      // Fetch the product first
+      const existingProduct = await Product.findById(id);
+      if (!existingProduct) {
+        return next(createError(404, "Product not found"));
+      }
+
+      // Authorization check
+      if (
+        existingProduct.creator.toString() !== currentUserId &&
+        currentUserRole !== "admin"
+      ) {
+        return next(
+          createError(403, "You are not authorized to update this product")
+        );
+      }
       let {
         title,
         description,
@@ -206,13 +223,9 @@ const updateProduct = async (req, res, next) => {
         status,
         metaTitle,
         metaDescription,
-
-        // images
       } = fields;
       let { images } = files;
 
-      // console.log("Form fields:", fields);
-      // Required field check
       if (
         !title ||
         !description ||
@@ -233,11 +246,11 @@ const updateProduct = async (req, res, next) => {
         return next(createError(400, "Price and stock must be numbers"));
       }
 
-      const existingProduct = await Product.findOne({
+      const duplicateProduct = await Product.findOne({
         _id: { $ne: id },
         title: { $regex: `^${title}$`, $options: "i" },
       });
-      if (existingProduct) {
+      if (duplicateProduct) {
         return next(createError(400, "Product with this title already exists"));
       }
 
@@ -252,6 +265,17 @@ const updateProduct = async (req, res, next) => {
           })
         );
       }
+      let existingImageUrls = [];
+
+      if (fields.images) {
+        if (Array.isArray(fields.images)) {
+          existingImageUrls = fields.images;
+        } else {
+          existingImageUrls = [fields.images];
+        }
+      }
+
+      let finalImageUrls = [...existingImageUrls, ...imageUrls];
 
       // Update product
       const product = await Product.findByIdAndUpdate(
@@ -274,10 +298,9 @@ const updateProduct = async (req, res, next) => {
           packageLength: packageLength || null,
           warrantyPolicy: warrantyPolicy || null,
           warrantyTime: warrantyTime || null,
-
           warrantyType: warrantyType || null,
           status: status || "unpublished",
-          images: imageUrls.length > 0 ? imageUrls : undefined,
+          images: imageUrls ? finalImageUrls : fields.images,
           metaData: {
             metaDescription,
             metaTitle,
@@ -313,7 +336,7 @@ const deleteProduct = async (req, res, next) => {
     console.error(error);
     next(error);
   }
-}
+};
 const getProductBySlug = async (req, res, next) => {
   try {
     const { slug } = req.params;
@@ -332,7 +355,7 @@ const getProductBySlug = async (req, res, next) => {
     console.error(error);
     next(error);
   }
-}
+};
 const getProductsByCategory = async (req, res, next) => {
   try {
     const { categoryId } = req.params;
@@ -351,15 +374,15 @@ const getProductsByCategory = async (req, res, next) => {
     console.error(error);
     next(error);
   }
-  }
+};
 const getProductsByBrand = async (req, res, next) => {
   try {
     const { brandId } = req.params;
-    const products = await Product.find({ brand: brandId }) 
-      
-        .populate("category", "name")
-        .populate("brand", "name")
-        .populate("creator", "name email");
+    const products = await Product.find({ brand: brandId })
+
+      .populate("category", "name")
+      .populate("brand", "name")
+      .populate("creator", "name email");
     if (!products || products.length === 0) {
       return next(createError(404, "No products found for this brand"));
     }
@@ -367,12 +390,11 @@ const getProductsByBrand = async (req, res, next) => {
       message: "Products fetched successfully",
       products,
     });
-  }
-  catch (error) {
+  } catch (error) {
     console.error(error);
     next(error);
   }
-}
+};
 const getProductsByCreator = async (req, res, next) => {
   try {
     const { creatorId } = req.params;
@@ -391,11 +413,60 @@ const getProductsByCreator = async (req, res, next) => {
     console.error(error);
     next(error);
   }
-}
+};
+const updateStatus = async (req, res, next) => {
+  
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const currentUserId = req.id;
+    const currentUserRole = req.role;
+
+    // Fetch the product first
+    const existingProduct = await Product.findById(id);
+    if (!existingProduct) {
+      return next(createError(404, "Product not found"));
+    }
+
+    // Authorization check
+    if (
+      existingProduct.creator.toString() !== currentUserId &&
+      currentUserRole !== "admin"
+    ) {
+      return next(
+        createError(403, "You are not authorized to update this product")
+      );
+    }
+
+    if (!status) {
+      return next(createError(400, "Status is required"));
+    }
+
+    const product = await Product.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true, runValidators: true }
+    );
+
+    if (!product) {
+      return next(createError(404, "Product not found"));
+    }
+
+    return successMessage(res, 200, {
+      message: "Product status updated successfully",
+      product,
+    });
+  } catch (error) {
+    console.error(error);
+    next(error);
+  }
+};
+
 const updatePriceAndStock = async (req, res, next) => {
   try {
     const { regularPrice, discountPrice, stock, id } = req.body;
-// console.log(req.body);
+    // console.log(req.body);
 
     // Validation for regularPrice
     if (regularPrice !== undefined) {
@@ -423,7 +494,9 @@ const updatePriceAndStock = async (req, res, next) => {
       discountPrice !== undefined &&
       Number(regularPrice) < Number(discountPrice)
     ) {
-      return next(createError(400, "Regular price must be greater than discount price"));
+      return next(
+        createError(400, "Regular price must be greater than discount price")
+      );
     }
 
     // Validation for stock
@@ -437,15 +510,16 @@ const updatePriceAndStock = async (req, res, next) => {
     }
 
     const updateFields = {};
-    if (regularPrice !== undefined) updateFields.regularPrice = Number(regularPrice);
-    if (discountPrice !== undefined) updateFields.discountPrice = Number(discountPrice);
+    if (regularPrice !== undefined)
+      updateFields.regularPrice = Number(regularPrice);
+    if (discountPrice !== undefined)
+      updateFields.discountPrice = Number(discountPrice);
     if (stock !== undefined) updateFields.stock = Number(stock);
 
-    const product = await Product.findByIdAndUpdate(
-      id,
-      updateFields,
-      { new: true, runValidators: true }
-    );
+    const product = await Product.findByIdAndUpdate(id, updateFields, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!product) {
       return next(createError(404, "Product not found"));
@@ -463,15 +537,11 @@ const updatePriceAndStock = async (req, res, next) => {
       message: messageParts.join(" & "),
       product,
     });
-
   } catch (error) {
     console.error(error);
     next(error);
   }
 };
-
-
-
 
 module.exports = {
   createProduct,
@@ -479,5 +549,6 @@ module.exports = {
   getProductById,
   updateProduct,
   deleteProduct,
-  updatePriceAndStock
+  updatePriceAndStock,
+  updateStatus
 };
