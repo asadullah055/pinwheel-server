@@ -6,10 +6,12 @@ const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
-
+ 
+  
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
-
+    console.log("Form fields:", fields);
+    console.log("Form files:", files);
     try {
       let {
         title,
@@ -113,7 +115,9 @@ const createProduct = async (req, res, next) => {
   });
 };
 const getAllProducts = async (req, res, next) => {
-  try {
+   
+   
+    try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -178,11 +182,14 @@ const getProductById = async (req, res, next) => {
   }
 };
 const updateProduct = async (req, res, next) => {
+
+  
   const form = formidable({ multiples: true });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
-
+    
+    
     try {
       const { id } = req.params;
       const currentUserId = req.id;
@@ -415,7 +422,7 @@ const getProductsByCreator = async (req, res, next) => {
   }
 };
 const updateStatus = async (req, res, next) => {
-  
+ 
   try {
     const { id } = req.params;
     const { status } = req.body;

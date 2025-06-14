@@ -8,10 +8,16 @@ const UserSchema = new mongoose.Schema(
     profileImageUrl: { type: String, default: null },
     shopLogo: { type: String, default: null },
     otp: { type: String, default: "0" },
-    role: { type: String, enum: ['seller', 'admin'], default: "seller" },
+    otpExpires: { type: Date, default: null },
+    isVerified: { type: Boolean, default: false },
+    role: { type: String, enum: ["seller", "admin"], default: "seller" },
     refreshToken: {
       type: String,
     },
+    loginAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
+    unlockToken: { type: String, default: null },
+
   },
   { timestamps: true, versionKey: false }
 );
@@ -27,4 +33,7 @@ UserSchema.pre("save", function (next) {
     });
   });
 });
+UserSchema.methods.isLocked = function () {
+  return this.lockUntil && this.lockUntil > Date.now();
+};
 module.exports = mongoose.model("User", UserSchema);

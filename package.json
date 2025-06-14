@@ -19,6 +19,7 @@
     "formidable": "^2.1.2",
     "http-errors": "^2.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.13.2"
+    "mongoose": "^8.13.2",
+    "nodemailer": "^7.0.3"
   }
 }

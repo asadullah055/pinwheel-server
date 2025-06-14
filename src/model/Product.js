@@ -30,7 +30,7 @@ const ProductSchema = new mongoose.Schema(
     shortDescription: { type: String, default: null },
     regularPrice: { type: Number, required: true },
     stock: { type: Number, default: 0 },
-    discountPrice: { type: Number, default: null },
+    discountPrice: { type: Number, default: 0 },
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     slug: { type: String, default: "" },
     packageHeight: { type: String, default: null },
