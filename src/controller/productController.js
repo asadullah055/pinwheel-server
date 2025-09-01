@@ -140,7 +140,7 @@ const getAllProducts = async (req, res, next) => {
       .populate("creator", "name email")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit).lean();
 
     if (!products || products.length === 0) {
       return successMessage(res, 200, {

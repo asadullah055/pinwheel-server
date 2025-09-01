@@ -37,7 +37,7 @@ const ProductSchema = new mongoose.Schema(
     packageWeight: { type: String, default: null },
     packageWidth: { type: String, default: null },
     packageLength: { type: String, default: null },
-    sku: { type: String,  unique: true }, 
+    sku: { type: String, unique: true },
     warrantyPolicy: { type: String, default: null },
     warrantyTime: { type: String, default: null },
     warrantyType: { type: String, default: null },
@@ -85,7 +85,9 @@ ProductSchema.pre("save", async function (next) {
 
     while (exists && attempts < maxAttempts) {
       newSKU = generateSKU();
-      const existingProduct = await mongoose.models.Product.findOne({ sku: newSKU });
+      const existingProduct = await mongoose.models.Product.findOne({
+        sku: newSKU,
+      });
       if (!existingProduct) {
         exists = false;
       } else {
@@ -94,7 +96,9 @@ ProductSchema.pre("save", async function (next) {
     }
 
     if (exists) {
-      return next(new Error("Failed to generate a unique SKU. Please try again.")); // Friendly error if all retries fail
+      return next(
+        new Error("Failed to generate a unique SKU. Please try again.")
+      ); // Friendly error if all retries fail
     }
 
     this.sku = newSKU;
@@ -119,4 +123,5 @@ ProductSchema.index(
     },
   }
 );
+ProductSchema.index({ creator: 1, status: 1, createdAt: -1 });
 module.exports = mongoose.model("Product", ProductSchema);

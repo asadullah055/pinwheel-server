@@ -259,9 +259,9 @@ const login = async (req, res, next) => {
     );
 
     const accessToken = await generateAccessToken(user);
-    console.log("Access Token:", accessToken);
+
     const refreshToken = await generateRefreshToken(user);
-    console.log("Refresh Token:", refreshToken);
+
     sendToken(res, accessToken, refreshToken);
     const userWithoutPassword = await Users.findById(user._id).select(
       "-password -createdAt -updatedAt -refreshToken -otp"
@@ -365,21 +365,21 @@ const resetPassword = async (req, res, next) => {
 
 const logout = async (req, res, next) => {
   console.log("Logout called");
-  
+
   try {
     res.clearCookie("accessToken");
     res.clearCookie("refreshToken");
     successMessage(res, 200, { message: "Logout successfully" });
   } catch (error) {
     console.log(error);
-    
+
     next(error);
   }
 };
 
 const refreshAccessToken = async (req, res) => {
   console.log("Refresh Access Token called");
-  
+
   const token = req.cookies.refreshToken;
 
   if (!token) {
@@ -426,5 +426,5 @@ module.exports = {
   forgotPassword,
   resetPassword,
   unlockAccount,
-  sendOtp
+  sendOtp,
 };

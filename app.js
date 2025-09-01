@@ -1,6 +1,6 @@
 const express = require("express");
 const createError = require("http-errors");
-
+const compression = require('compression');
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const connectDB = require("./src/config/db");
@@ -9,6 +9,7 @@ const authRoutes = require('./src/routes/authRoutes')
 const brandRoutes = require('./src/routes/brandRoutes')
 const categoryRoutes = require('./src/routes/categoryRoutes')
 const productRoutes = require('./src/routes/productRoutes')
+const bannerRoutes = require('./src/routes/bannerRoutes')
 const app = express();
 
 /* const rateLimiter = rateLimit({
@@ -37,6 +38,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(compression()); // Compress all routes
 app.get("/", (req, res) => {
   res.status(200).send("Api is working fine");
 });
@@ -47,6 +49,7 @@ app.use('/api/auth', authRoutes)
 app.use('/api/brand', brandRoutes)
 app.use('/api/category', categoryRoutes)
 app.use('/api/product', productRoutes)
+app.use('/api/banner', bannerRoutes)
 connectDB();
 app.use((req, res, next) => {
   next(createError(404, "router not found"));
