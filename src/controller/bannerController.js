@@ -270,7 +270,7 @@ const getActiveBanners = async (req, res, next) => {
 
     const banners = await Banner.find(filter)
       .select("bannerType bannerURL targetUrl priority")
-      .sort({ priority: -1, createdAt: -1 });
+      .sort({ priority: 1, createdAt: -1 });
 
     return successMessage(res, 200, {
       message: "Active banners fetched successfully",
