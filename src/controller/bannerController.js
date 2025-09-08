@@ -28,7 +28,6 @@ const createBanner = async (req, res, next) => {
         fields;
       let { bannerImage } = files;
 
-      console.log(fields);
       if (!bannerType || !targetUrl || !bannerImage) {
         throw createError(
           400,
@@ -50,7 +49,7 @@ const createBanner = async (req, res, next) => {
       const banner = await Banner.create({
         bannerType,
         targetUrl,
-        bannerURL: result.url,
+        bannerURL: result.secure_url,
         priority: priority ? parseInt(priority) : 0,
         isActive: isActive === "true",
         startDate: startDate ? new Date(startDate) : null,
