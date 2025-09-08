@@ -7,6 +7,7 @@ const { createBanner, getAllBanners, getBannerById, updateBanner, deleteBanner, 
 const router = express.Router();
 
 // Get all brands
+router.get("/get-active-banner",  getActiveBanners);
 router.post("/create", protect, adminOnly, createBanner);
 router.get("/", protect, adminOnly, getAllBanners);
 router.get("/:id", protect, adminOnly, getBannerById);
@@ -14,6 +15,5 @@ router.put("/:id", protect, adminOnly, updateBanner);
 router.delete("/:id", protect, adminOnly, deleteBanner);
 router.patch("/:id/toggle-status", protect, adminOnly, toggleBannerStatus);
 router.patch("/update-priority", protect, adminOnly, updateBannerPriority);
-router.get("/get-active-banners",  getActiveBanners);
 
 module.exports = router;

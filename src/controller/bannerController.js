@@ -9,6 +9,7 @@ const {
 const { successMessage } = require("../utils/response");
 
 const createBanner = async (req, res, next) => {
+  
   if (req?.role !== "admin") {
     return next(createError(403, "Only Admins can create banners"));
   }
@@ -68,6 +69,7 @@ const createBanner = async (req, res, next) => {
   });
 };
 const getAllBanners = async (req, res, next) => {
+  
   try {
     const { bannerType, page = 1, limit = 10 } = req.query;
 
@@ -230,6 +232,7 @@ const deleteBanner = async (req, res, next) => {
 
 // ✅ Toggle Banner Status
 const toggleBannerStatus = async (req, res, next) => {
+  
   if (req?.role !== "admin") {
     return next(createError(403, "Only Admins can toggle banner status"));
   }
@@ -258,6 +261,8 @@ const toggleBannerStatus = async (req, res, next) => {
 
 // ✅ Get Active Banners (Public API)
 const getActiveBanners = async (req, res, next) => {
+
+  
   try {
     const currentDate = new Date();
     const filter = {
@@ -283,6 +288,7 @@ const getActiveBanners = async (req, res, next) => {
 
 // ✅ Update Banner Priority
 const updateBannerPriority = async (req, res, next) => {
+  console.log("updateBannerPriority called");
   if (req?.role !== "admin") {
     return next(createError(403, "Only Admins can update banner priority"));
   }
