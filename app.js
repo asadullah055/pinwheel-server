@@ -20,6 +20,8 @@ const app = express();
   const allowedOrigins = [
     "https://pinwheel-dash.vercel.app",
     "http://localhost:5173", // your local frontend
+    "http://localhost:3000", // your local frontend
+    "https://www.cartout.com.bd", // your local frontend
   ];
   
   const corsOptions = {
