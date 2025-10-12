@@ -2,12 +2,9 @@ import mongoose from 'mongoose';
 
 export const MetaDataSchema = new mongoose.Schema(
   {
-    metaTitle: {
-      type: String,
-    },
-    metaDescription: {
-      type: String,
-    },
+     // SEO
+    seoTitle: { type: String, required: true },
+    seoContent: { type: String, required: true },
   },
   {
     timestamps: false,

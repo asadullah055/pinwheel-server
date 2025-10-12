@@ -1,123 +1,245 @@
 const createError = require("http-errors");
+
 const { successMessage } = require("../utils/response");
 const Product = require("../model/Product");
 const formidable = require("formidable");
 const { uploadToCloudinary } = require("../helper/cloudinary");
+const { generateUniqueSKU } = require("../utils/skuGenerator.js");
+
 
 const createProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
- 
-  
+
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
-    console.log("Form fields:", fields);
-    console.log("Form files:", files);
+
     try {
+      // Extract fields from form
       let {
-        title,
+        productName,
         description,
         shortDescription,
-        regularPrice,
-        stock,
         category,
         brand,
-        discountPrice,
         slug,
-        packageHeight,
-        packageWeight,
-        packageWidth,
-        packageLength,
+        weight,
+        length,
+        width,
+        height,
         warrantyPolicy,
         warrantyTime,
         warrantyType,
         status,
-        metaTitle,
-        metaDescription,
-
-        // images
+        seoTitle,
+        seoContent,
+        attributes,
+        variants,
       } = fields;
-      // let { images } = files;
-      let { images } = files;
 
-      // console.log("Form fields:", fields);
+      // Trim strings
+      productName = productName?.trim();
+      description = description?.trim();
+      shortDescription = shortDescription?.trim();
+      seoTitle = seoTitle?.trim();
+      seoContent = seoContent?.trim();
+      status = status || "unpublished";
+
+      // Convert numeric fields
+      const convert = (val) => (val ? parseFloat(val) : undefined);
+      weight = convert(weight);
+      length = convert(length);
+      width = convert(width);
+      height = convert(height);
+
+      // Validate dimensions
+      for (const [key, val] of Object.entries({ weight, length, width, height })) {
+        if (val !== undefined && (isNaN(val) || val <= 0))
+          return next(createError(400, `${key} must be a valid positive number`));
+      }
+
       // Required field check
-      if (
-        !title ||
-        !description ||
-        !regularPrice ||
-        !stock ||
-        !category ||
-        !brand
-      ) {
-        return next(createError(400, "All required fields must be filled"));
-      }
-
-      title = title.trim();
-      description = description.trim();
-      regularPrice = parseFloat(regularPrice);
-      stock = parseInt(stock);
-
-      if (isNaN(regularPrice) || isNaN(stock)) {
-        return next(createError(400, "Price and stock must be numbers"));
-      }
-
-      const existingProduct = await Product.findOne({
-        title: { $regex: `^${title}$`, $options: "i" },
-      });
-      if (existingProduct) {
-        return next(createError(400, "Product with this title already exists"));
-      }
-
-      // Upload images
-      const imageUrls = images
-        ? await Promise.all(
-            (Array.isArray(images) ? images : [images]).map(async (img) => {
-              const result = await uploadToCloudinary(img.filepath, "pinwheel");
-              return result.url;
-            })
+      if (!productName || !description || !category || !brand || !seoTitle || !seoContent) {
+        return next(
+          createError(
+            400,
+            "Product name, description, category, brand, and SEO fields are required"
           )
-        : [];
+        );
+      }
 
-      // Create product
-      const product = await Product.create({
-        title,
-        description,
-        shortDescription: shortDescription || null,
-        regularPrice,
-        stock,
+      // Parse attributes (main product attributes)
+      let parsedAttributes = [];
+      if (attributes) {
+        try {
+          parsedAttributes = JSON.parse(attributes);
+          if (!Array.isArray(parsedAttributes)) {
+            return next(createError(400, "Attributes must be an array"));
+          }
+        } catch (e) {
+          return next(createError(400, "Invalid attributes format"));
+        }
+      }
+
+      // Parse variants
+      let parsedVariants = [];
+if (variants) {
+  try {
+    parsedVariants = JSON.parse(variants);
+
+    if (!Array.isArray(parsedVariants)) {
+      return next(createError(400, "Variants must be an array"));
+    }
+
+    // Loop through each variant for validation & conversion
+    for (let i = 0; i < parsedVariants.length; i++) {
+      const variant = parsedVariants[i];
+
+      // Convert numbers
+      variant.price = parseFloat(variant.price);
+      variant.stock = parseInt(variant.stock);
+      if (variant.discountPrice) {
+        variant.discountPrice = parseFloat(variant.discountPrice);
+      }
+
+      // Validation
+      if (isNaN(variant.price) || variant.price <= 0) {
+        return next(createError(400, `Variant ${i + 1}: Invalid price`));
+      }
+      if (isNaN(variant.stock) || variant.stock < 0) {
+        return next(createError(400, `Variant ${i + 1}: Invalid stock`));
+      }
+      if (
+        variant.discountPrice !== undefined &&
+        (isNaN(variant.discountPrice) || variant.discountPrice < 0)
+      ) {
+        return next(
+          createError(400, `Variant ${i + 1}: Invalid discount price`)
+        );
+      }
+      if (variant.discountPrice && variant.discountPrice >= variant.price) {
+        return next(
+          createError(
+            400,
+            `Variant ${i + 1}: Discount price must be less than price`
+          )
+        );
+      }
+
+      // ✅ Build structured attributes automatically
+      const attributesObj = {};
+      for (const key in variant) {
+        // Pick "attribute-like" keys
+        if (
+          ![
+            "sku",
+            "price",
+            "discountPrice",
+            "discountStartDate",
+            "discountEndDate",
+            "stock",
+            "availability",
+          ].includes(key)
+        ) {
+          const value = variant[key];
+          if (typeof value === "string" && value.trim() !== "") {
+            attributesObj[key.toLowerCase()] = value.toLowerCase();
+          }
+        }
+      }
+
+      // Attach structured attributes
+      variant.attributes = attributesObj;
+
+      // Availability
+      variant.availability = variant.stock > 0;
+    }
+  } catch (e) {
+    return next(createError(400, "Invalid variants format"));
+  }
+}
+
+      if (parsedVariants.length === 0)
+        return next(createError(400, "At least one variant is required"));
+
+      // Check for existing product
+      const existingProduct = await Product.findOne({
+        productName: { $regex: `^${productName}$`, $options: "i" },
+      });
+
+      if (existingProduct)
+        return next(createError(400, "Product with this name already exists"));
+
+      // Handle image upload
+      let imageUrls = [];
+      if (files.images) {
+        const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+        const images = Array.isArray(files.images) ? files.images : [files.images];
+
+        for (const img of images) {
+          if (!allowedTypes.includes(img.mimetype))
+            return next(createError(400, `${img.originalFilename}: Invalid image type`));
+        }
+
+        imageUrls = await Promise.all(
+          images.map(async (img) => {
+            const result = await uploadToCloudinary(img.filepath, "products");
+            return result.url;
+          })
+        );
+      }
+
+      // Generate main SKU
+      const mainSKU = await generateUniqueSKU();
+
+      // Create final product object
+      const productData = {
+        productName,
         category,
         brand,
-        discountPrice: discountPrice ? parseFloat(discountPrice) : null,
+        description,
+        shortDescription,
         creator: req.id,
-        slug: slug || "",
-        packageHeight: packageHeight || null,
-        packageWeight: packageWeight || null,
-        packageWidth: packageWidth || null,
-        packageLength: packageLength || null,
-        warrantyPolicy: warrantyPolicy || null,
-        warrantyTime: warrantyTime || null,
-        warrantyType: warrantyType || null,
-        status: status || "unpublished",
+        slug:
+          slug ||
+          productName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
         images: imageUrls,
-        metaData: {
-          metaDescription,
-          metaTitle,
-        },
-      });
-      return successMessage(res, 200, {
+        weight,
+        length,
+        width,
+        height,
+        warrantyType,
+        warrantyTime,
+        warrantyPolicy,
+        sku: mainSKU,
+        status,
+        seoTitle,
+        seoContent,
+        attributes: parsedAttributes,
+        variants: parsedVariants,
+      };
+
+      const newProduct = new Product(productData);
+      const savedProduct = await newProduct.save();
+
+      const populated = await Product.findById(savedProduct._id)
+        .populate("category", "name")
+        .populate("brand", "name")
+        .populate("creator", "name email");
+
+      return successMessage(res, 201, {
         message: "Product created successfully",
-        product,
+        product: populated,
       });
     } catch (error) {
-      console.log(error);
-      next(error);
+      console.error("Product creation error:", error);
+      next(createError(500, error.message || "Failed to create product"));
     }
   });
 };
+
+
 const getAllProducts = async (req, res, next) => {
-   
-   
-    try {
+  try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -140,7 +262,8 @@ const getAllProducts = async (req, res, next) => {
       .populate("creator", "name email")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit).lean();
+      .limit(limit)
+      .lean();
 
     if (!products || products.length === 0) {
       return successMessage(res, 200, {
@@ -182,14 +305,11 @@ const getProductById = async (req, res, next) => {
   }
 };
 const updateProduct = async (req, res, next) => {
-
-  
   const form = formidable({ multiples: true });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
-    
-    
+
     try {
       const { id } = req.params;
       const currentUserId = req.id;
@@ -422,7 +542,6 @@ const getProductsByCreator = async (req, res, next) => {
   }
 };
 const updateStatus = async (req, res, next) => {
- 
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -557,5 +676,5 @@ module.exports = {
   updateProduct,
   deleteProduct,
   updatePriceAndStock,
-  updateStatus
+  updateStatus,
 };
