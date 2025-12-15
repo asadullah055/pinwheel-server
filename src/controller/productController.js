@@ -151,7 +151,8 @@ if (variants) {
       variant.attributes = attributesObj;
 
       // Availability
-      variant.availability = variant.stock > 0;
+      variant.availability = variant.availability;
+      console.log(variant.availability);
     }
   } catch (e) {
     return next(createError(400, "Invalid variants format"));
@@ -272,7 +273,7 @@ const getAllProducts = async (req, res, next) => {
         totalProducts: 0,
       });
     }
-
+// console.log(products);
     return successMessage(res, 200, {
       message: "Products fetched successfully",
       products,
@@ -304,6 +305,7 @@ const getProductById = async (req, res, next) => {
     next(error);
   }
 };
+
 const updateProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
 
@@ -311,143 +313,213 @@ const updateProduct = async (req, res, next) => {
     if (err) return next(createError(400, "Error parsing form data"));
 
     try {
-      const { id } = req.params;
-      const currentUserId = req.id;
-      const currentUserRole = req.role;
+      const productId = req.params.id;
+      const product = await Product.findById(productId);
 
-      // Fetch the product first
-      const existingProduct = await Product.findById(id);
-      if (!existingProduct) {
-        return next(createError(404, "Product not found"));
-      }
+      if (!product) return next(createError(404, "Product not found"));
 
-      // Authorization check
-      if (
-        existingProduct.creator.toString() !== currentUserId &&
-        currentUserRole !== "admin"
-      ) {
-        return next(
-          createError(403, "You are not authorized to update this product")
-        );
-      }
+      // Extract fields
       let {
-        title,
+        productName,
         description,
         shortDescription,
-        regularPrice,
-        stock,
         category,
         brand,
-        discountPrice,
         slug,
-        packageHeight,
-        packageWeight,
-        packageWidth,
-        packageLength,
+        weight,
+        length,
+        width,
+        height,
         warrantyPolicy,
         warrantyTime,
         warrantyType,
         status,
-        metaTitle,
-        metaDescription,
+        seoTitle,
+        seoContent,
+        attributes,
+        variants,
       } = fields;
-      let { images } = files;
 
-      if (
-        !title ||
-        !description ||
-        !regularPrice ||
-        !stock ||
-        !category ||
-        !brand
-      ) {
-        return next(createError(400, "All required fields must be filled"));
-      }
+      // Trim strings
+      if (productName) productName = productName.trim();
+      if (description) description = description.trim();
+      if (shortDescription) shortDescription = shortDescription.trim();
+      if (seoTitle) seoTitle = seoTitle.trim();
+      if (seoContent) seoContent = seoContent.trim();
 
-      title = title.trim();
-      description = description.trim();
-      regularPrice = parseFloat(regularPrice);
-      stock = parseInt(stock);
+      status = status || product.status;
 
-      if (isNaN(regularPrice) || isNaN(stock)) {
-        return next(createError(400, "Price and stock must be numbers"));
-      }
+      // Convert numeric fields
+      const convert = (val) => (val ? parseFloat(val) : undefined);
+      weight = convert(weight);
+      length = convert(length);
+      width = convert(width);
+      height = convert(height);
 
-      const duplicateProduct = await Product.findOne({
-        _id: { $ne: id },
-        title: { $regex: `^${title}$`, $options: "i" },
-      });
-      if (duplicateProduct) {
-        return next(createError(400, "Product with this title already exists"));
-      }
-
-      // Upload images
-      let imageUrls = [];
-
-      if (images) {
-        imageUrls = await Promise.all(
-          (Array.isArray(images) ? images : [images]).map(async (img) => {
-            const result = await uploadToCloudinary(img.filepath, "pinwheel");
-            return result.url;
-          })
-        );
-      }
-      let existingImageUrls = [];
-
-      if (fields.images) {
-        if (Array.isArray(fields.images)) {
-          existingImageUrls = fields.images;
-        } else {
-          existingImageUrls = [fields.images];
+      // Validate numbers
+      for (const [key, val] of Object.entries({ weight, length, width, height })) {
+        if (val !== undefined && (isNaN(val) || val <= 0)) {
+          return next(createError(400, `${key} must be a valid positive number`));
         }
       }
 
-      let finalImageUrls = [...existingImageUrls, ...imageUrls];
-
-      // Update product
-      const product = await Product.findByIdAndUpdate(
-        id,
-        {
-          title,
-          description,
-          shortDescription: shortDescription || null,
-          regularPrice,
-          stock,
-          category,
-          brand,
-          discountPrice: discountPrice ? parseFloat(discountPrice) : null,
-          creator: req.id,
-          slug: slug || "",
-          packageHeight: packageHeight || null,
-          packageWeight: packageWeight || null,
-
-          packageWidth: packageWidth || null,
-          packageLength: packageLength || null,
-          warrantyPolicy: warrantyPolicy || null,
-          warrantyTime: warrantyTime || null,
-          warrantyType: warrantyType || null,
-          status: status || "unpublished",
-          images: imageUrls ? finalImageUrls : fields.images,
-          metaData: {
-            metaDescription,
-            metaTitle,
-          },
-        },
-        { new: true, runValidators: true }
-      );
-      if (!product) {
-        return next(createError(404, "Product not found"));
+      // Required field check (only if updating)
+      if (
+        productName === "" ||
+        description === "" ||
+        category === "" ||
+        brand === "" ||
+        seoTitle === "" ||
+        seoContent === ""
+      ) {
+        return next(createError(400, "Required fields cannot be empty"));
       }
+
+      // Parse attributes
+      let parsedAttributes = product.attributes;
+      if (attributes) {
+        try {
+          parsedAttributes = JSON.parse(attributes);
+          if (!Array.isArray(parsedAttributes)) {
+            return next(createError(400, "Attributes must be an array"));
+          }
+        } catch {
+          return next(createError(400, "Invalid attributes JSON format"));
+        }
+      }
+
+      // Parse variants
+      let parsedVariants = product.variants;
+      if (variants) {
+        try {
+          parsedVariants = JSON.parse(variants);
+          if (!Array.isArray(parsedVariants)) {
+            return next(createError(400, "Variants must be an array"));
+          }
+
+          for (let i = 0; i < parsedVariants.length; i++) {
+            const v = parsedVariants[i];
+
+            v.price = parseFloat(v.price);
+            v.stock = parseInt(v.stock);
+            if (v.discountPrice) v.discountPrice = parseFloat(v.discountPrice);
+
+            // Validation
+            if (isNaN(v.price) || v.price <= 0)
+              return next(createError(400, `Variant ${i + 1}: Invalid price`));
+
+            if (isNaN(v.stock) || v.stock < 0)
+              return next(createError(400, `Variant ${i + 1}: Invalid stock`));
+
+            if (v.discountPrice && (isNaN(v.discountPrice) || v.discountPrice < 0))
+              return next(createError(400, `Variant ${i + 1}: Invalid discount price`));
+
+            if (v.discountPrice && v.discountPrice >= v.price)
+              return next(
+                createError(
+                  400,
+                  `Variant ${i + 1}: Discount price must be less than price`
+                )
+              );
+
+            // Auto build variant attributes
+            const attr = {};
+            for (const key in v) {
+              if (
+                ![
+                  "sku",
+                  "price",
+                  "discountPrice",
+                  "discountStartDate",
+                  "discountEndDate",
+                  "stock",
+                  "availability",
+                ].includes(key)
+              ) {
+                if (typeof v[key] === "string" && v[key].trim() !== "") {
+                  attr[key.toLowerCase()] = v[key].toLowerCase();
+                }
+              }
+            }
+
+            v.attributes = attr;
+            v.availability = v.availability;
+            
+          }
+        } catch {
+          return next(createError(400, "Invalid variants JSON format"));
+        }
+      }
+
+      // Handle image upload
+      let updatedImages = product.images;
+
+      if (files.images) {
+        const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+        const images = Array.isArray(files.images) ? files.images : [files.images];
+
+        for (const img of images) {
+          if (!allowedTypes.includes(img.mimetype))
+            return next(createError(400, `${img.originalFilename}: Invalid image type`));
+        }
+
+        const newUrls = await Promise.all(
+          images.map(async (img) => {
+            const result = await uploadToCloudinary(img.filepath, "products");
+            return result.url;
+          })
+        );
+
+        updatedImages = [...updatedImages, ...newUrls];
+      }
+
+      // Update fields
+      product.productName = productName || product.productName;
+      product.description = description || product.description;
+      product.shortDescription = shortDescription || product.shortDescription;
+      product.category = category || product.category;
+      product.brand = brand || product.brand;
+
+      // Slug update optional
+      if (slug) {
+        product.slug = slug.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      }
+
+      product.images = updatedImages;
+
+      if (weight) product.weight = weight;
+      if (length) product.length = length;
+      if (width) product.width = width;
+      if (height) product.height = height;
+
+      product.warrantyType = warrantyType || product.warrantyType;
+      product.warrantyTime = warrantyTime || product.warrantyTime;
+      product.warrantyPolicy = warrantyPolicy || product.warrantyPolicy;
+
+      product.status = status;
+      product.seoTitle = seoTitle || product.seoTitle;
+      product.seoContent = seoContent || product.seoContent;
+      product.attributes = parsedAttributes;
+      product.variants = parsedVariants;
+
+      const saved = await product.save();
+
+      const populated = await Product.findById(saved._id)
+        .populate("category", "name")
+        .populate("brand", "name")
+        .populate("creator", "name email");
+
       return successMessage(res, 200, {
         message: "Product updated successfully",
-        product,
+        product: populated,
       });
     } catch (error) {
-      console.log(error);
-      next(error);
+      console.error("Product update error:", error);
+      next(createError(500, error.message || "Failed to update product"));
     }
   });
 };
+
 const deleteProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
