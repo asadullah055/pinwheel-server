@@ -12,6 +12,7 @@ const sendToken = require("../utils/sendToken");
 const { refreshSecretKey } = require("../../secret");
 const { sendEmail } = require("../utils/sendEmail");
 const crypto = require("crypto");
+const { generateUniqueSellerId } = require("../utils/sellerIdGenerator");
 
 const register = async (req, res, next) => {
   try {
@@ -21,6 +22,7 @@ const register = async (req, res, next) => {
       email,
       password,
       role,
+      sellerId: await generateUniqueSellerId(),
     });
     const exitEmail = await Users.exists({ email: email });
     const exitUser = await Users.exists({ email: email, role: role });

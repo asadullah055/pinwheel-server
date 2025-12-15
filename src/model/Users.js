@@ -14,6 +14,7 @@ const UserSchema = new mongoose.Schema(
     refreshToken: {
       type: String,
     },
+    sellerId: { type: Number, default: null },
     loginAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date, default: null },
     unlockToken: { type: String, default: null },
