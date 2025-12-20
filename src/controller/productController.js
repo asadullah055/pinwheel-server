@@ -388,7 +388,7 @@ const createProduct = async (req, res, next) => {
               ) {
                 const value = variant[key];
                 if (typeof value === "string" && value.trim() !== "") {
-                  attributesObj[key.toLowerCase()] = value.toLowerCase();
+                  attributesObj[key] = value;
                 }
               }
             }
@@ -515,6 +515,7 @@ const getAllProducts = async (req, res, next) => {
     } else {
       filter.status = "published";
     }
+
 
     const totalProducts = await Product.countDocuments(filter);
 
@@ -966,7 +967,7 @@ const updateProduct = async (req, res, next) => {
                 ].includes(key)
               ) {
                 if (typeof v[key] === "string" && v[key].trim() !== "") {
-                  attr[key.toLowerCase()] = v[key].toLowerCase();
+                  attr[key] = v[key];
                 }
               }
             }
@@ -1203,84 +1204,98 @@ const updateStatus = async (req, res, next) => {
 };
 
 const updatePriceAndStock = async (req, res, next) => {
+  console.log(req.body)
   try {
-    const { regularPrice, discountPrice, stock, id } = req.body;
-    // console.log(req.body);
+    const { id, variants } = req.body;
+    const currentUserId = req.id;
 
-    // Validation for regularPrice
-    if (regularPrice !== undefined) {
-      if (isNaN(regularPrice)) {
-        return next(createError(400, "Regular price must be a number"));
-      }
-      if (regularPrice < 0) {
-        return next(createError(400, "Regular price cannot be negative"));
-      }
-    }
-
-    // Validation for discountPrice (optional)
-    if (discountPrice !== undefined) {
-      if (isNaN(discountPrice)) {
-        return next(createError(400, "Discount price must be a number"));
-      }
-      if (discountPrice < 0) {
-        return next(createError(400, "Discount price cannot be negative"));
-      }
-    }
-
-    // If both prices are provided, validate the logical relationship
-    if (
-      regularPrice !== undefined &&
-      discountPrice !== undefined &&
-      Number(regularPrice) < Number(discountPrice)
-    ) {
-      return next(
-        createError(400, "Regular price must be greater than discount price")
-      );
-    }
-
-    // Validation for stock
-    if (stock !== undefined) {
-      if (isNaN(stock)) {
-        return next(createError(400, "Stock must be a number"));
-      }
-      if (stock < 0) {
-        return next(createError(400, "Stock cannot be negative"));
-      }
-    }
-
-    const updateFields = {};
-    if (regularPrice !== undefined)
-      updateFields.regularPrice = Number(regularPrice);
-    if (discountPrice !== undefined)
-      updateFields.discountPrice = Number(discountPrice);
-    if (stock !== undefined) updateFields.stock = Number(stock);
-
-    const product = await Product.findByIdAndUpdate(id, updateFields, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!product) {
+    const existingProduct = await Product.findById(id);
+    if (!existingProduct) {
       return next(createError(404, "Product not found"));
     }
 
-    const messageParts = [];
-    if (regularPrice !== undefined || discountPrice !== undefined) {
-      messageParts.push("Price updated successfully");
-    }
-    if (stock !== undefined) {
-      messageParts.push("Stock updated successfully");
+    if (existingProduct.creator.toString() !== currentUserId) {
+      return next(
+        createError(403, "You are not allowed to update this product")
+      );
     }
 
+    // Track what changed
+    let priceUpdated = false;
+    let stockUpdated = false;
+    let availabilityUpdated = false;
+
+    await Promise.all(
+      variants.map(async (variant) => {
+        const updateQuery = {};
+        if (variant.price !== undefined) {
+          updateQuery["variants.$.price"] = variant.price;
+          priceUpdated = true;
+        }
+
+        if (variant.discountPrice !== undefined) {
+          updateQuery["variants.$.discountPrice"] = variant.discountPrice;
+          priceUpdated = true;
+        }
+
+        if (variant.stock !== undefined) {
+          updateQuery["variants.$.stock"] = variant.stock;
+          stockUpdated = true;
+        }
+
+        if (variant.availability !== undefined) {
+          updateQuery["variants.$.availability"] = variant.availability;
+          availabilityUpdated = true;
+        }
+
+        // Only update if something was changed
+        if (Object.keys(updateQuery).length > 0) {
+          await Product.updateOne(
+            { _id: id, "variants._id": variant._id },
+            { $set: updateQuery }
+          );
+        }
+      })
+    );
+
+    // Message Generate
+    let message = "";
+    if (priceUpdated && !stockUpdated && !availabilityUpdated) {
+      message = "Price updated successfully";
+    }
+    if (stockUpdated && !priceUpdated && !availabilityUpdated) {
+      message = "Stock updated successfully";
+    }
+    if (availabilityUpdated && !priceUpdated && !stockUpdated) {
+      message = "Product availability updated";
+    }
+
+    if (
+      (priceUpdated && stockUpdated) ||
+      (priceUpdated && availabilityUpdated) ||
+      (stockUpdated && availabilityUpdated)
+    ) {
+      let msgs = [];
+      if (priceUpdated) msgs.push("price updated");
+      if (stockUpdated) msgs.push("stock updated");
+      if (availabilityUpdated) msgs.push("availability updated");
+
+      message = msgs.join(" & ") + " successfully";
+    }
+
+    const updatedProduct = await Product.findById(id);
+
     return successMessage(res, 200, {
-      message: messageParts.join(" & "),
-      product,
+      message,
+      product: updatedProduct,
     });
+
   } catch (error) {
-    console.error(error);
     next(error);
   }
 };
+
+
 
 module.exports = {
   createProduct,
