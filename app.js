@@ -10,6 +10,8 @@ const brandRoutes = require('./src/routes/brandRoutes')
 const categoryRoutes = require('./src/routes/categoryRoutes')
 const productRoutes = require('./src/routes/productRoutes')
 const bannerRoutes = require('./src/routes/bannerRoutes')
+const orderRoutes = require('./src/routes/orderRoutes')
+const cartRoutes = require('./src/routes/cartRoutes')
 const app = express();
 
 /* const rateLimiter = rateLimit({
@@ -52,6 +54,8 @@ app.use('/api/brand', brandRoutes)
 app.use('/api/category', categoryRoutes)
 app.use('/api/product', productRoutes)
 app.use('/api/banner', bannerRoutes)
+app.use('/api/order', orderRoutes)
+app.use('/api/cart', cartRoutes)
 connectDB();
 app.use((req, res, next) => {
   next(createError(404, "router not found"));
@@ -64,3 +68,5 @@ app.use((err, req, res, next) => {
   });
 });
 module.exports = app;
+
+

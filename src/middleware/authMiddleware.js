@@ -1,7 +1,6 @@
 const jwt = require("jsonwebtoken");
 const createError = require("http-errors");
 const { accessSecretKey } = require("../../secret");
-const Users = require("../model/Users");
 
 const protect = async (req, res, next) => {
   try {
@@ -11,12 +10,12 @@ const protect = async (req, res, next) => {
       throw createError(401, "Access token not found. Please log in.");
     }
 
-    // Verify token and extract user data
     const decoded = jwt.verify(token, accessSecretKey);
 
     if (!decoded) {
       throw createError(404, "Invalid Access token. Please Log in");
     }
+
     req.id = decoded.id;
     req.email = decoded.email;
     req.role = decoded.role;
@@ -32,6 +31,28 @@ const protect = async (req, res, next) => {
   }
 };
 
+const optionalProtect = (req, res, next) => {
+  try {
+    const token = req.cookies?.accessToken;
+
+    if (!token) {
+      return next();
+    }
+
+    const decoded = jwt.verify(token, accessSecretKey);
+
+    if (decoded) {
+      req.id = decoded.id;
+      req.email = decoded.email;
+      req.role = decoded.role;
+    }
+
+    return next();
+  } catch (error) {
+    return next();
+  }
+};
+
 const adminOnly = (req, res, next) => {
   if (req.role === "admin") {
     next();
@@ -39,4 +60,5 @@ const adminOnly = (req, res, next) => {
     res.status(403).json({ message: "Access denied, admin only" });
   }
 };
-module.exports = { protect, adminOnly };
+
+module.exports = { protect, optionalProtect, adminOnly };

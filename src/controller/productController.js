@@ -4,7 +4,10 @@ const { successMessage } = require("../utils/response");
 const Product = require("../model/Product");
 const formidable = require("formidable");
 const { uploadToCloudinary } = require("../helper/cloudinary");
-const { generateUniqueSKU, generateVariantSKUs } = require("../utils/skuGenerator.js");
+const {
+  generateUniqueSKU,
+  generateVariantSKUs,
+} = require("../utils/skuGenerator.js");
 
 /* const createProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
@@ -516,6 +519,44 @@ const getAllProducts = async (req, res, next) => {
       filter.status = "published";
     }
 
+    const totalProducts = await Product.countDocuments(filter);
+
+    const products = await Product.find(filter)
+      .populate("category", "name")
+      .populate("brand", "name")
+      .populate("creator", "name email")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    if (!products || products.length === 0) {
+      return successMessage(res, 200, {
+        message: "No Products found",
+        products: [],
+        totalProducts: 0,
+      });
+    }
+    // console.log(products);
+    return successMessage(res, 200, {
+      message: "Products fetched successfully",
+      products,
+      totalProducts,
+    });
+  } catch (error) {
+    console.error(error);
+    next(error);
+  }
+};
+const getPublicProducts = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    let filter = {};
+
+    filter.status = "published";
 
     const totalProducts = await Product.countDocuments(filter);
 
@@ -1081,13 +1122,26 @@ const deleteProduct = async (req, res, next) => {
 const getProductBySlug = async (req, res, next) => {
   try {
     const { slug } = req.params;
-    const product = await Product.findOne({ slug })
+
+    const product = await Product.findOne({
+      slug,
+      status: "published",
+      variants: { $elemMatch: { availability: true } },
+    })
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email");
+      .populate("creator", "name email")
+      .lean();
+
     if (!product) {
       return next(createError(404, "Product not found"));
     }
+
+    // ✅ only available variants
+    product.variants = product.variants.filter(
+      (variant) => variant.availability === true
+    );
+
     return successMessage(res, 200, {
       message: "Product fetched successfully",
       product,
@@ -1097,6 +1151,7 @@ const getProductBySlug = async (req, res, next) => {
     next(error);
   }
 };
+
 const getProductsByCategory = async (req, res, next) => {
   try {
     const { categoryId } = req.params;
@@ -1204,7 +1259,7 @@ const updateStatus = async (req, res, next) => {
 };
 
 const updatePriceAndStock = async (req, res, next) => {
-  console.log(req.body)
+  console.log(req.body);
   try {
     const { id, variants } = req.body;
     const currentUserId = req.id;
@@ -1289,13 +1344,10 @@ const updatePriceAndStock = async (req, res, next) => {
       message,
       product: updatedProduct,
     });
-
   } catch (error) {
     next(error);
   }
 };
-
-
 
 module.exports = {
   createProduct,
@@ -1304,5 +1356,7 @@ module.exports = {
   updateProduct,
   deleteProduct,
   updatePriceAndStock,
+  getPublicProducts,
   updateStatus,
+  getProductBySlug
 };

@@ -6,7 +6,6 @@ const { uploadToCloudinary } = require("../helper/cloudinary");
 
 const createCategory = async (req, res, next) => {
   const form = formidable();
-
   form.parse(req, async (err, fields, files) => {
     if (err) {
       throw createError(401, "Error parsing form data");

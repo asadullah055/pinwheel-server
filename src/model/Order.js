@@ -1,11 +1,39 @@
 const mongoose = require("mongoose");
 
+const orderCounterSchema = new mongoose.Schema(
+  {
+    _id: { type: String },
+    seq: { type: Number, default: 999 },
+  },
+  { versionKey: false }
+);
+
+const OrderCounter =
+  mongoose.models.OrderCounter ||
+  mongoose.model("OrderCounter", orderCounterSchema);
+
 const orderSchema = new mongoose.Schema(
   {
+    orderNumber: {
+      type: Number,
+      unique: true,
+      index: true,
+    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
+    },
+    sellers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    customer: {
+      name: { type: String, trim: true },
+      phone: { type: String, trim: true },
+      email: { type: String, trim: true, lowercase: true, default: null },
     },
     items: [
       {
@@ -29,10 +57,35 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    shippingFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    payableAmount: {
+      type: Number,
+      required: true,
+    },
     status: {
       type: String,
-      enum: ["Pending", "Processing","Confirm", "Shipped", "Delivered", "Cancelled", "Returned", "Refunded", "Failed", "Completed", "Awaiting Payment",],
+      enum: [
+        "Pending",
+        "Processing",
+        "Confirm",
+        "Shipped",
+        "Delivered",
+        "Cancelled",
+        "Returned",
+        "Refunded",
+        "Failed",
+        "Completed",
+        "Awaiting Payment",
+      ],
       default: "Pending",
+    },
+    stockAdjusted: {
+      type: Boolean,
+      default: false,
     },
     shippingAddress: {
       street: { type: String, required: true },
@@ -56,5 +109,31 @@ const orderSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+orderSchema.pre("save", async function (next) {
+  try {
+    if (!this.isNew || this.orderNumber) return next();
+
+    const counter = await OrderCounter.findOneAndUpdate(
+      { _id: "orderNumber" },
+      [
+        {
+          $set: {
+            seq: { $add: [{ $ifNull: ["$seq", 999] }, 1] },
+          },
+        },
+      ],
+      {
+        new: true,
+        upsert: true,
+      }
+    );
+
+    this.orderNumber = counter.seq;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = mongoose.model("Order", orderSchema);
