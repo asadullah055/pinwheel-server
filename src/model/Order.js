@@ -42,6 +42,18 @@ const orderSchema = new mongoose.Schema(
           ref: "Product",
           required: true,
         },
+        variant: {
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
+        },
+        sku: {
+          type: String,
+          trim: true,
+        },
+        attributes: {
+          type: Map,
+          of: String,
+        },
         quantity: {
           type: Number,
           required: true,
@@ -93,6 +105,10 @@ const orderSchema = new mongoose.Schema(
       state: { type: String, required: true },
       postalCode: { type: String, required: true },
       country: { type: String, required: true },
+      division: { type: String, trim: true },
+      district: { type: String, trim: true },
+      upazila: { type: String, trim: true },
+      area: { type: String, trim: true },
     },
     paymentMethod: {
       type: String,

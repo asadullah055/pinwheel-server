@@ -94,34 +94,46 @@ const createOrder = async (req, res, next) => {
       }
 
       const activeVariants = product.variants.filter(
-        (variant) => Number(variant?.price) > 0 && Number(variant?.stock) > 0
+        (variant) =>
+          variant?.availability !== false &&
+          Number(variant?.price) > 0 &&
+          Number(variant?.stock) > 0
       );
 
       if (activeVariants.length === 0) {
         throw createError(400, `${product.productName} is out of stock`);
       }
 
-      const totalStock = activeVariants.reduce(
-        (sum, variant) => sum + Number(variant.stock || 0),
-        0
-      );
+      const requestedVariantId = item?.variant || item?.variantId;
+      let selectedVariant = null;
 
-      if (quantity > totalStock) {
+      if (requestedVariantId && mongoose.Types.ObjectId.isValid(requestedVariantId)) {
+        selectedVariant = activeVariants.find(
+          (variant) => variant._id.toString() === requestedVariantId.toString()
+        );
+      } else if (activeVariants.length === 1) {
+        selectedVariant = activeVariants[0];
+      }
+
+      if (!selectedVariant) {
+        throw createError(400, `${product.productName} selected variant is not available`);
+      }
+
+      const selectedVariantStock = Number(selectedVariant.stock || 0);
+      if (quantity > selectedVariantStock) {
         throw createError(
           400,
-          `${product.productName} has only ${totalStock} items in stock`
+          `${product.productName} has only ${selectedVariantStock} items in stock`
         );
       }
 
-      const unitPrice = Math.min(
-        ...activeVariants.map((variant) => {
-          const discountPrice = Number(variant.discountPrice);
-          return discountPrice > 0 ? discountPrice : Number(variant.price);
-        })
-      );
+      const unitPrice = getVariantUnitPrice(selectedVariant);
 
       normalizedItems.push({
         product: product._id,
+        variant: selectedVariant._id,
+        sku: selectedVariant.sku,
+        attributes: normalizeVariantAttributes(selectedVariant.attributes),
         quantity,
         price: unitPrice,
       });
@@ -136,8 +148,19 @@ const createOrder = async (req, res, next) => {
     const payableAmount = totalAmount + parsedShippingFee;
 
     const qtyMap = buildQuantityMap(normalizedItems);
-    for (const [productId, quantity] of qtyMap.entries()) {
-      await decreaseProductStock(productId, quantity);
+    const adjustedStockItems = [];
+    try {
+      for (const adjustment of qtyMap.values()) {
+        await decreaseVariantStock(
+          adjustment.productId,
+          adjustment.variantId,
+          adjustment.quantity
+        );
+        adjustedStockItems.push(adjustment);
+      }
+    } catch (error) {
+      await rollbackStockAdjustments(adjustedStockItems);
+      throw error;
     }
 
     const orderPayload = {
@@ -153,9 +176,29 @@ const createOrder = async (req, res, next) => {
         state: shippingAddress.state.trim(),
         postalCode: shippingAddress.postalCode.trim(),
         country: shippingAddress.country.trim(),
+        division: shippingAddress.division
+          ? String(shippingAddress.division).trim()
+          : shippingAddress.state.trim(),
+        district: shippingAddress.district
+          ? String(shippingAddress.district).trim()
+          : shippingAddress.city.trim(),
+        upazila: shippingAddress.upazila
+          ? String(shippingAddress.upazila).trim()
+          : undefined,
+        area: shippingAddress.area
+          ? String(shippingAddress.area).trim()
+          : shippingAddress.postalCode.trim(),
       },
       paymentMethod,
     };
+
+    if (customer && typeof customer === "object") {
+      orderPayload.customer = {
+        name: customer.name ? String(customer.name).trim() : undefined,
+        phone: customer.phone ? String(customer.phone).trim() : undefined,
+        email: customer.email ? String(customer.email).trim().toLowerCase() : null,
+      };
+    }
 
     if (isLoggedIn) {
       orderPayload.user = req.id;
@@ -171,9 +214,7 @@ const createOrder = async (req, res, next) => {
     try {
       order = await Order.create(orderPayload);
     } catch (error) {
-      for (const [productId, quantity] of qtyMap.entries()) {
-        await increaseProductStock(productId, quantity);
-      }
+      await rollbackStockAdjustments(adjustedStockItems);
       throw error;
     }
 
@@ -245,62 +286,99 @@ const buildQuantityMap = (items) => {
 
   for (const item of items) {
     const productId = item.product.toString();
+    const variantId = item.variant ? item.variant.toString() : null;
+    const key = `${productId}:${variantId || "legacy"}`;
     const qty = Number(item.quantity || 0);
-    qtyMap.set(productId, (qtyMap.get(productId) || 0) + qty);
+    const current = qtyMap.get(key);
+
+    qtyMap.set(key, {
+      productId,
+      variantId,
+      quantity: (current?.quantity || 0) + qty,
+    });
   }
 
   return qtyMap;
 };
 
-const decreaseProductStock = async (productId, quantity) => {
-  const product = await Product.findById(productId).select("productName variants");
-
-  if (!product) {
-    throw createError(404, "Product not found while updating stock");
-  }
-
-  let totalStock = 0;
-  for (const variant of product.variants || []) {
-    totalStock += Number(variant.stock || 0);
-  }
-
-  if (quantity > totalStock) {
-    throw createError(
-      400,
-      `${product.productName} does not have enough stock for confirmation`
-    );
-  }
-
-  let remaining = quantity;
-
-  for (const variant of product.variants || []) {
-    if (remaining <= 0) break;
-
-    const currentStock = Number(variant.stock || 0);
-    const deduct = Math.min(currentStock, remaining);
-
-    variant.stock = currentStock - deduct;
-    remaining -= deduct;
-  }
-
-  await product.save();
+const getVariantUnitPrice = (variant) => {
+  const discountPrice = Number(variant.discountPrice);
+  return discountPrice > 0 ? discountPrice : Number(variant.price);
 };
 
-const increaseProductStock = async (productId, quantity) => {
+const normalizeVariantAttributes = (attributes) => {
+  if (!attributes) return {};
+  if (attributes instanceof Map) return Object.fromEntries(attributes);
+  if (typeof attributes.toObject === "function") return attributes.toObject();
+  return { ...attributes };
+};
+
+const decreaseVariantStock = async (productId, variantId, quantity) => {
+  const result = await Product.updateOne(
+    {
+      _id: productId,
+      status: "published",
+      variants: {
+        $elemMatch: {
+          _id: variantId,
+          availability: { $ne: false },
+          stock: { $gte: quantity },
+        },
+      },
+    },
+    {
+      $inc: {
+        "variants.$.stock": -quantity,
+      },
+    }
+  );
+
+  if (result.modifiedCount !== 1) {
+    throw createError(400, "Selected product variant is out of stock");
+  }
+};
+
+const increaseVariantStock = async (productId, variantId, quantity) => {
+  await Product.updateOne(
+    {
+      _id: productId,
+      "variants._id": variantId,
+    },
+    {
+      $inc: {
+        "variants.$.stock": quantity,
+      },
+    }
+  );
+};
+
+const increaseLegacyProductStock = async (productId, quantity) => {
   const product = await Product.findById(productId).select("variants");
 
-  if (!product) {
-    throw createError(404, "Product not found while restoring stock");
-  }
-
-  if (!Array.isArray(product.variants) || product.variants.length === 0) {
-    throw createError(400, "Cannot restore stock: product has no variants");
+  if (!product || !Array.isArray(product.variants) || product.variants.length === 0) {
+    return;
   }
 
   const firstVariant = product.variants[0];
   firstVariant.stock = Number(firstVariant.stock || 0) + Number(quantity || 0);
-
   await product.save();
+};
+
+const increaseStockAdjustment = async (adjustment) => {
+  if (adjustment.variantId) {
+    await increaseVariantStock(
+      adjustment.productId,
+      adjustment.variantId,
+      adjustment.quantity
+    );
+    return;
+  }
+
+  await increaseLegacyProductStock(adjustment.productId, adjustment.quantity);
+};
+
+const rollbackStockAdjustments = async (adjustments) => {
+  await Promise.all(adjustments.map((adjustment) => increaseStockAdjustment(adjustment)));
 };
 
 const updateOrderStatus = async (req, res, next) => {
@@ -343,8 +421,8 @@ const updateOrderStatus = async (req, res, next) => {
 
 
     if (status === "Cancelled" && order.stockAdjusted) {
-      for (const [productId, quantity] of qtyMap.entries()) {
-        await increaseProductStock(productId, quantity);
+      for (const adjustment of qtyMap.values()) {
+        await increaseStockAdjustment(adjustment);
       }
       order.stockAdjusted = false;
     }
