@@ -13,12 +13,14 @@ const bannerRoutes = require('./src/routes/bannerRoutes')
 const orderRoutes = require('./src/routes/orderRoutes')
 const cartRoutes = require('./src/routes/cartRoutes')
 const app = express();
-
+const dns = require("dns");
 /* const rateLimiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 50,
     message: "Too many request from this API",
   }); */
+  dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
+
   const allowedOrigins = [
     "https://pinwheel-dash.vercel.app",
     "http://localhost:5173", // your local frontend

@@ -131,11 +131,14 @@ const createOrder = async (req, res, next) => {
 
       normalizedItems.push({
         product: product._id,
+        seller: product.creator || null,
         variant: selectedVariant._id,
         sku: selectedVariant.sku,
         attributes: normalizeVariantAttributes(selectedVariant.attributes),
         quantity,
         price: unitPrice,
+        status: "Pending",
+        stockAdjusted: true,
       });
 
       if (product.creator) {
@@ -218,10 +221,7 @@ const createOrder = async (req, res, next) => {
       throw error;
     }
 
-    const populatedOrder = await Order.findById(order._id)
-      .populate("user", "name email")
-      .populate("sellers", "name email")
-      .populate("items.product", "productName slug images creator");
+    const populatedOrder = await findPopulatedOrderById(order._id);
 
     return successMessage(res, 201, {
       message: "Order placed successfully",
@@ -241,13 +241,14 @@ const getAllOrders = async (req, res, next) => {
     const orders = await Order.find({})
       .populate("user", "name email")
       .populate("sellers", "name email")
+      .populate("items.seller", "name email")
       .populate("items.product", "productName slug images creator")
       .sort({ createdAt: -1 });
 
     return successMessage(res, 200, {
       message: "All orders fetched successfully",
       totalOrders: orders.length,
-      orders,
+      orders: orders.map((order) => prepareOrderForResponse(order, req)),
     });
   } catch (error) {
     next(error);
@@ -264,17 +265,128 @@ const getSellerOrders = async (req, res, next) => {
     const sellerProductIds = sellerProducts.map((p) => p._id);
 
     const orders = await Order.find({
-      $or: [{ sellers: req.id }, { "items.product": { $in: sellerProductIds } }],
+      $or: [
+        { sellers: req.id },
+        { "items.seller": req.id },
+        { "items.product": { $in: sellerProductIds } },
+      ],
     })
       .populate("user", "name email")
       .populate("sellers", "name email")
+      .populate("items.seller", "name email")
+      .populate("items.product", "productName slug images creator")
+      .sort({ createdAt: -1 });
+    const sellerOrders = orders
+      .map((order) => prepareOrderForResponse(order, req))
+      .filter((order) => order.items.length > 0);
+
+    return successMessage(res, 200, {
+      message: "Seller orders fetched successfully",
+      totalOrders: sellerOrders.length,
+      orders: sellerOrders,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getMyOrders = async (req, res, next) => {
+  try {
+    const orders = await Order.find({ user: req.id })
+      .populate("user", "name email")
+      .populate("sellers", "name email")
+      .populate("items.seller", "name email")
       .populate("items.product", "productName slug images creator")
       .sort({ createdAt: -1 });
 
     return successMessage(res, 200, {
-      message: "Seller orders fetched successfully",
+      message: "My orders fetched successfully",
       totalOrders: orders.length,
-      orders,
+      orders: orders.map((order) => prepareOrderForResponse(order, req)),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const canViewOrder = (order, req) => {
+  if (req.role === "admin") return true;
+
+  if (req.role === "seller") {
+    return order.items.some((item) => sellerOwnsOrderItem(item, req.id));
+  }
+
+  return order.user && order.user._id.toString() === req.id;
+};
+
+const findPopulatedOrderById = (id) =>
+  Order.findById(id)
+    .populate("user", "name email")
+    .populate("sellers", "name email")
+    .populate("items.seller", "name email")
+    .populate("items.product", "productName slug images creator");
+
+const sellerOwnsOrderItem = (item, sellerId) => {
+  if (item.seller && item.seller._id && item.seller._id.toString() === sellerId) {
+    return true;
+  }
+
+  if (item.seller && item.seller.toString && item.seller.toString() === sellerId) {
+    return true;
+  }
+
+  return Boolean(
+    item.product &&
+      item.product.creator &&
+      item.product.creator.toString() === sellerId
+  );
+};
+
+const prepareOrderForResponse = (order, req) => {
+  const plainOrder = typeof order.toObject === "function" ? order.toObject() : order;
+
+  if (req.role !== "seller") {
+    return plainOrder;
+  }
+
+  const sellerItems = plainOrder.items.filter((item) =>
+    sellerOwnsOrderItem(item, req.id)
+  );
+  const sellerTotalAmount = sellerItems.reduce(
+    (total, item) => total + Number(item.price || 0) * Number(item.quantity || 0),
+    0
+  );
+
+  return {
+    ...plainOrder,
+    items: sellerItems,
+    totalAmount: sellerTotalAmount,
+    payableAmount: sellerTotalAmount,
+    shippingFee: 0,
+  };
+};
+
+const getOrderById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw createError(400, "Invalid order id");
+    }
+
+    const order = await findPopulatedOrderById(id);
+
+    if (!order) {
+      throw createError(404, "Order not found");
+    }
+
+    if (!canViewOrder(order, req)) {
+      throw createError(403, "You are not allowed to view this order");
+    }
+
+    return successMessage(res, 200, {
+      message: "Order fetched successfully",
+      order: prepareOrderForResponse(order, req),
     });
   } catch (error) {
     next(error);
@@ -381,6 +493,87 @@ const rollbackStockAdjustments = async (adjustments) => {
   await Promise.all(adjustments.map((adjustment) => increaseStockAdjustment(adjustment)));
 };
 
+const updateOrderItemStatus = async (req, res, next) => {
+  try {
+    const { orderId, itemId } = req.params;
+    const { status } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
+      throw createError(400, "Invalid order or item id");
+    }
+
+    if (!status || !ORDER_STATUSES.includes(status)) {
+      throw createError(400, "Valid item status is required");
+    }
+
+    const order = await Order.findById(orderId)
+      .populate("items.seller", "name email")
+      .populate("items.product", "productName slug images creator");
+
+    if (!order) {
+      throw createError(404, "Order not found");
+    }
+
+    const item = order.items.id(itemId);
+
+    if (!item) {
+      throw createError(404, "Order item not found");
+    }
+
+    if (req.role !== "admin" && req.role !== "seller") {
+      throw createError(403, "Only admin or seller can update item status");
+    }
+
+    if (req.role === "seller" && !sellerOwnsOrderItem(item, req.id)) {
+      throw createError(403, "You can only update your own product status");
+    }
+
+    const previousStatus = item.status || order.status || "Pending";
+    const wasStockAdjusted = item.stockAdjusted !== false;
+
+    if (status === previousStatus) {
+      return successMessage(res, 200, {
+        message: "Item status already set",
+        order: prepareOrderForResponse(order, req),
+      });
+    }
+
+    if (status === "Cancelled" && previousStatus !== "Cancelled" && wasStockAdjusted) {
+      await increaseStockAdjustment({
+        productId: item.product._id || item.product,
+        variantId: item.variant || null,
+        quantity: item.quantity,
+      });
+      item.stockAdjusted = false;
+    }
+
+    if (previousStatus === "Cancelled" && status !== "Cancelled" && item.stockAdjusted === false) {
+      if (!item.variant) {
+        throw createError(400, "Cannot restore legacy item without variant information");
+      }
+
+      await decreaseVariantStock(
+        item.product._id || item.product,
+        item.variant,
+        Number(item.quantity || 0)
+      );
+      item.stockAdjusted = true;
+    }
+
+    item.status = status;
+    await order.save({ validateBeforeSave: false });
+
+    const updatedOrder = await findPopulatedOrderById(order._id);
+
+    return successMessage(res, 200, {
+      message: "Item status updated successfully",
+      order: prepareOrderForResponse(updatedOrder, req),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateOrderStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -396,18 +589,8 @@ const updateOrderStatus = async (req, res, next) => {
       throw createError(404, "Order not found");
     }
 
-    if (req.role !== "admin" && req.role !== "seller") {
-      throw createError(403, "Only admin or seller can update order status");
-    }
-
-    if (req.role === "seller") {
-      const sellerOwnsAnyProduct = order.items.some(
-        (item) => item.product && item.product.creator && item.product.creator.toString() === req.id
-      );
-
-      if (!sellerOwnsAnyProduct) {
-        throw createError(403, "You can only update status for your own product orders");
-      }
+    if (req.role !== "admin") {
+      throw createError(403, "Only admin can update full order status");
     }
 
     if (order.status === status) {
@@ -428,7 +611,10 @@ const updateOrderStatus = async (req, res, next) => {
     }
 
     order.status = status;
-    await order.save();
+    order.items.forEach((item) => {
+      item.status = status;
+    });
+    await order.save({ validateBeforeSave: false });
 
     const updatedOrder = await Order.findById(order._id)
       .populate("user", "name email")
@@ -448,6 +634,9 @@ module.exports = {
   createOrder,
   getAllOrders,
   getSellerOrders,
+  getMyOrders,
+  getOrderById,
+  updateOrderItemStatus,
   updateOrderStatus,
 };
 

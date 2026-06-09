@@ -42,6 +42,10 @@ const orderSchema = new mongoose.Schema(
           ref: "Product",
           required: true,
         },
+        seller: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
         variant: {
           type: mongoose.Schema.Types.ObjectId,
           required: true,
@@ -62,6 +66,27 @@ const orderSchema = new mongoose.Schema(
         price: {
           type: Number,
           required: true,
+        },
+        status: {
+          type: String,
+          enum: [
+            "Pending",
+            "Processing",
+            "Confirm",
+            "Shipped",
+            "Delivered",
+            "Cancelled",
+            "Returned",
+            "Refunded",
+            "Failed",
+            "Completed",
+            "Awaiting Payment",
+          ],
+          default: "Pending",
+        },
+        stockAdjusted: {
+          type: Boolean,
+          default: true,
         },
       },
     ],
