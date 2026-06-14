@@ -2,7 +2,9 @@ const createError = require("http-errors");
 const mongoose = require("mongoose");
 const Order = require("../model/Order");
 const Product = require("../model/Product");
+const { buildInvoiceEmailHtml, buildInvoicePdf } = require("../utils/invoice");
 const { successMessage } = require("../utils/response");
+const { sendEmail } = require("../utils/sendEmail");
 
 const requiredAddressFields = ["street", "city", "state", "postalCode", "country"];
 
@@ -137,6 +139,7 @@ const createOrder = async (req, res, next) => {
         attributes: normalizeVariantAttributes(selectedVariant.attributes),
         quantity,
         price: unitPrice,
+        regularPrice: Number(selectedVariant.price),
         status: "Pending",
         stockAdjusted: true,
       });
@@ -221,11 +224,16 @@ const createOrder = async (req, res, next) => {
       throw error;
     }
 
-    const populatedOrder = await findPopulatedOrderById(order._id);
+    const populatedOrder = await findPopulatedOrderById(order._id, {
+      includeInvoiceToken: true,
+    });
+    await sendOrderInvoiceEmail(populatedOrder);
 
     return successMessage(res, 201, {
       message: "Order placed successfully",
-      order: populatedOrder,
+      order: prepareOrderForResponse(populatedOrder, req, {
+        includeInvoiceToken: true,
+      }),
     });
   } catch (error) {
     next(error);
@@ -319,12 +327,19 @@ const canViewOrder = (order, req) => {
   return order.user && order.user._id.toString() === req.id;
 };
 
-const findPopulatedOrderById = (id) =>
-  Order.findById(id)
+const findPopulatedOrderById = (id, options = {}) => {
+  const query = Order.findById(id);
+
+  if (options.includeInvoiceToken) {
+    query.select("+invoiceAccessToken");
+  }
+
+  return query
     .populate("user", "name email")
     .populate("sellers", "name email")
     .populate("items.seller", "name email")
-    .populate("items.product", "productName slug images creator");
+    .populate("items.product", "productName slug sku images creator variants");
+};
 
 const sellerOwnsOrderItem = (item, sellerId) => {
   if (item.seller && item.seller._id && item.seller._id.toString() === sellerId) {
@@ -342,14 +357,19 @@ const sellerOwnsOrderItem = (item, sellerId) => {
   );
 };
 
-const prepareOrderForResponse = (order, req) => {
+const prepareOrderForResponse = (order, req = {}, options = {}) => {
   const plainOrder = typeof order.toObject === "function" ? order.toObject() : order;
+  const responseOrder = { ...plainOrder };
 
-  if (req.role !== "seller") {
-    return plainOrder;
+  if (!options.includeInvoiceToken) {
+    delete responseOrder.invoiceAccessToken;
   }
 
-  const sellerItems = plainOrder.items.filter((item) =>
+  if (req.role !== "seller") {
+    return responseOrder;
+  }
+
+  const sellerItems = responseOrder.items.filter((item) =>
     sellerOwnsOrderItem(item, req.id)
   );
   const sellerTotalAmount = sellerItems.reduce(
@@ -358,12 +378,107 @@ const prepareOrderForResponse = (order, req) => {
   );
 
   return {
-    ...plainOrder,
+    ...responseOrder,
     items: sellerItems,
     totalAmount: sellerTotalAmount,
     payableAmount: sellerTotalAmount,
     shippingFee: 0,
   };
+};
+
+const getInvoiceRecipientEmail = (order) =>
+  order?.customer?.email || order?.user?.email || null;
+
+const sendOrderInvoiceEmail = async (order) => {
+  const email = getInvoiceRecipientEmail(order);
+
+  if (!email) return;
+
+  try {
+    const pdfBuffer = await buildInvoicePdf(prepareOrderForResponse(order, { role: "customer" }));
+
+    await sendEmail({
+      email,
+      subject: `Cartout invoice ${getOrderNumberForEmail(order)}`,
+      html: buildInvoiceEmailHtml(order),
+      attachments: [
+        {
+          filename: getInvoiceFilename(order),
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    const sentAt = new Date();
+    order.invoiceEmailSentAt = sentAt;
+    order.invoiceEmailError = null;
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { invoiceEmailSentAt: sentAt, invoiceEmailError: null } }
+    );
+  } catch (error) {
+    order.invoiceEmailError = error.message || "Failed to send invoice email";
+    try {
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { invoiceEmailError: order.invoiceEmailError } }
+      );
+    } catch (updateError) {
+      console.log("failed to store invoice email status", updateError);
+    }
+  }
+};
+
+const getOrderNumberForEmail = (order) =>
+  order?.orderNumber ? `#${order.orderNumber}` : `#${String(order?._id || "").slice(-8)}`;
+
+const getInvoiceFilename = (order) => {
+  const invoiceNumber = order?.orderNumber || String(order?._id || "").slice(-8);
+  return `cartout-invoice-${invoiceNumber}.pdf`;
+};
+
+const hasInvoiceTokenAccess = (order, token) =>
+  Boolean(token && order?.invoiceAccessToken && token === order.invoiceAccessToken);
+
+const getOrderInvoice = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw createError(400, "Invalid order id");
+    }
+
+    const order = await findPopulatedOrderById(id, { includeInvoiceToken: true });
+
+    if (!order) {
+      throw createError(404, "Order not found");
+    }
+
+    const tokenHasAccess = hasInvoiceTokenAccess(order, req.query?.token);
+    if (!tokenHasAccess && !req.id) {
+      throw createError(401, "Please log in or use a valid invoice link");
+    }
+
+    if (!tokenHasAccess && !canViewOrder(order, req)) {
+      throw createError(403, "You are not allowed to view this invoice");
+    }
+
+    const invoiceOrder = tokenHasAccess
+      ? prepareOrderForResponse(order, { role: "customer" })
+      : prepareOrderForResponse(order, req);
+    const scopeLabel = req.role === "seller" && !tokenHasAccess ? "Seller Copy" : "";
+    const pdfBuffer = await buildInvoicePdf(invoiceOrder, { scopeLabel });
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${getInvoiceFilename(order)}"`,
+      "Content-Length": pdfBuffer.length,
+    });
+    return res.status(200).send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
 };
 
 const getOrderById = async (req, res, next) => {
@@ -636,6 +751,7 @@ module.exports = {
   getSellerOrders,
   getMyOrders,
   getOrderById,
+  getOrderInvoice,
   updateOrderItemStatus,
   updateOrderStatus,
 };

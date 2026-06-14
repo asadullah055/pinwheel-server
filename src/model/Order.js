@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 
 const orderCounterSchema = new mongoose.Schema(
@@ -66,6 +67,10 @@ const orderSchema = new mongoose.Schema(
         price: {
           type: Number,
           required: true,
+        },
+        regularPrice: {
+          type: Number,
+          default: null,
         },
         status: {
           type: String,
@@ -144,6 +149,20 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: ["Pending", "Paid", "Failed"],
       default: "Pending",
+    },
+    invoiceAccessToken: {
+      type: String,
+      default: () => crypto.randomBytes(24).toString("hex"),
+      select: false,
+      index: true,
+    },
+    invoiceEmailSentAt: {
+      type: Date,
+      default: null,
+    },
+    invoiceEmailError: {
+      type: String,
+      default: null,
     },
   },
   {

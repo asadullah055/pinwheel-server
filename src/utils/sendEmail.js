@@ -18,6 +18,7 @@ const sendEmail = async (emailData) => {
       to: emailData.email, 
       subject: emailData.subject,
       html: emailData.html, 
+      attachments: emailData.attachments || [],
     };
 
     await transporter.sendMail(mailOptions)
