@@ -1,8 +1,84 @@
 const fs = require("fs");
 const path = require("path");
-const puppeteer = require("puppeteer");
+const chromium = require("@sparticuz/chromium");
+const puppeteer = require("puppeteer-core");
 
 let cachedLogoDataUri = null;
+
+const CHROME_ENV_KEYS = [
+  "PUPPETEER_EXECUTABLE_PATH",
+  "CHROME_EXECUTABLE_PATH",
+  "GOOGLE_CHROME_BIN",
+];
+
+const getEnvChromeExecutablePath = () => {
+  for (const key of CHROME_ENV_KEYS) {
+    const value = process.env[key];
+    if (value && fs.existsSync(value)) return value;
+  }
+
+  return null;
+};
+
+const getLocalChromeExecutablePath = () => {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(process.env.PROGRAMFILES || "", "Google/Chrome/Application/chrome.exe"),
+          path.join(
+            process.env["PROGRAMFILES(X86)"] || "",
+            "Google/Chrome/Application/chrome.exe"
+          ),
+          path.join(
+            process.env.LOCALAPPDATA || "",
+            "Google/Chrome/Application/chrome.exe"
+          ),
+        ]
+      : process.platform === "darwin"
+      ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+      : [
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/google-chrome",
+          "/usr/bin/chromium-browser",
+          "/usr/bin/chromium",
+        ];
+
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+};
+
+const isServerlessRuntime = () =>
+  Boolean(
+    process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV
+  );
+
+const getInvoiceBrowserLaunchOptions = async () => {
+  const executablePath = getEnvChromeExecutablePath() || getLocalChromeExecutablePath();
+
+  if (executablePath) {
+    return {
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    };
+  }
+
+  if (isServerlessRuntime()) {
+    return {
+      args: puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: "shell",
+    };
+  }
+
+  return {
+    channel: "chrome",
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  };
+};
 
 const formatMoney = (value) => {
   const amount = Number(value || 0);
@@ -558,10 +634,7 @@ const buildInvoiceHtml = (order, options = {}) => {
 };
 
 const buildInvoicePdf = async (order, options = {}) => {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  const browser = await puppeteer.launch(await getInvoiceBrowserLaunchOptions());
 
   try {
     const page = await browser.newPage();
