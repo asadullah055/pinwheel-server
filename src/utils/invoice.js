@@ -212,7 +212,7 @@ const getLogoDataUri = () => {
 
   const logoPath =
     process.env.INVOICE_LOGO_PATH ||
-    path.resolve(__dirname, "../../../client/public/images/cartout.png");
+    path.resolve(__dirname, "../../../client/public/images/mainlogo.png");
 
   try {
     if (fs.existsSync(logoPath)) {
