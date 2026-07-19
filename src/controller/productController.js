@@ -9,6 +9,97 @@ const {
   generateVariantSKUs,
 } = require("../utils/skuGenerator.js");
 
+const DEFAULT_INSIDE_DHAKA_SHIPPING = 80;
+const DEFAULT_OUTSIDE_DHAKA_SHIPPING = 120;
+
+const getFieldValue = (value) => (Array.isArray(value) ? value[0] : value);
+
+const parseOptionalNumber = (value, fallback) => {
+  value = getFieldValue(value);
+  if (typeof value === "string") value = value.trim();
+  if (value === undefined || value === null || value === "") return fallback;
+
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : NaN;
+};
+
+const normalizeShippingCharge = (
+  insideDhaka,
+  outsideDhaka,
+  fallback = {}
+) => {
+  const parsedInsideDhaka = parseOptionalNumber(
+    insideDhaka,
+    fallback.insideDhaka ?? DEFAULT_INSIDE_DHAKA_SHIPPING
+  );
+  const parsedOutsideDhaka = parseOptionalNumber(
+    outsideDhaka,
+    fallback.outsideDhaka ?? DEFAULT_OUTSIDE_DHAKA_SHIPPING
+  );
+
+  if (parsedInsideDhaka < 0 || parsedOutsideDhaka < 0) {
+    throw createError(400, "Shipping charge must be a valid non-negative number");
+  }
+
+  if (!Number.isFinite(parsedInsideDhaka) || !Number.isFinite(parsedOutsideDhaka)) {
+    throw createError(400, "Shipping charge must be a valid number");
+  }
+
+  return {
+    insideDhaka: parsedInsideDhaka,
+    outsideDhaka: parsedOutsideDhaka,
+  };
+};
+
+const normalizeDiscountFields = (variant, index) => {
+  if (variant.discountPrice === "" || variant.discountPrice === null) {
+    delete variant.discountPrice;
+  } else if (variant.discountPrice !== undefined) {
+    variant.discountPrice = parseFloat(variant.discountPrice);
+  }
+
+  const hasStartDate = Boolean(variant.discountStartDate);
+  const hasEndDate = Boolean(variant.discountEndDate);
+
+  if (!hasStartDate && !hasEndDate) {
+    delete variant.discountStartDate;
+    delete variant.discountEndDate;
+    return;
+  }
+
+  if (!variant.discountPrice) {
+    throw createError(
+      400,
+      `Variant ${index + 1}: Discount price is required for discount timing`
+    );
+  }
+
+  if (!hasStartDate || !hasEndDate) {
+    throw createError(
+      400,
+      `Variant ${index + 1}: Discount start and end dates are both required`
+    );
+  }
+
+  const startDate = new Date(variant.discountStartDate);
+  const endDate = new Date(variant.discountEndDate);
+  endDate.setHours(23, 59, 59, 999);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw createError(400, `Variant ${index + 1}: Invalid discount date`);
+  }
+
+  if (endDate < startDate) {
+    throw createError(
+      400,
+      `Variant ${index + 1}: Discount end date must be after start date`
+    );
+  }
+
+  variant.discountStartDate = startDate;
+  variant.discountEndDate = endDate;
+};
+
 /* const createProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
 
@@ -31,6 +122,8 @@ const {
         warrantyPolicy,
         warrantyTime,
         warrantyType,
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
         status,
         seoTitle,
         seoContent,
@@ -52,6 +145,10 @@ const {
       length = convert(length);
       width = convert(width);
       height = convert(height);
+      const shippingCharge = normalizeShippingCharge(
+        shippingInsideDhaka,
+        shippingOutsideDhaka
+      );
 
       // Validate dimensions
       for (const [key, val] of Object.entries({ weight, length, width, height })) {
@@ -235,6 +332,7 @@ if (variants) {
       });
     } catch (error) {
       console.error("Product creation error:", error);
+      if (error.status || error.statusCode) return next(error);
       next(createError(500, error.message || "Failed to create product"));
     }
   });
@@ -261,6 +359,8 @@ const createProduct = async (req, res, next) => {
         warrantyPolicy,
         warrantyTime,
         warrantyType,
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
         status,
         seoTitle,
         seoContent,
@@ -282,6 +382,10 @@ const createProduct = async (req, res, next) => {
       length = convert(length);
       width = convert(width);
       height = convert(height);
+      const shippingCharge = normalizeShippingCharge(
+        shippingInsideDhaka,
+        shippingOutsideDhaka
+      );
 
       // Validate dimensions
       for (const [key, val] of Object.entries({
@@ -301,14 +405,12 @@ const createProduct = async (req, res, next) => {
         !productName ||
         !description ||
         !category ||
-        !brand ||
-        !seoTitle ||
-        !seoContent
+        !brand
       ) {
         return next(
           createError(
             400,
-            "Product name, description, category, brand, and SEO fields are required"
+            "Product name, description, category, and brand are required"
           )
         );
       }
@@ -343,9 +445,7 @@ const createProduct = async (req, res, next) => {
             // Convert numbers
             variant.price = parseFloat(variant.price);
             variant.stock = parseInt(variant.stock);
-            if (variant.discountPrice) {
-              variant.discountPrice = parseFloat(variant.discountPrice);
-            }
+            normalizeDiscountFields(variant, i);
 
             // Validation
             if (isNaN(variant.price) || variant.price <= 0) {
@@ -403,6 +503,7 @@ const createProduct = async (req, res, next) => {
             variant.availability = variant.availability;
           }
         } catch (e) {
+          if (e.status || e.statusCode) return next(e);
           return next(createError(400, "Invalid variants format"));
         }
       }
@@ -473,9 +574,10 @@ const createProduct = async (req, res, next) => {
         length,
         width,
         height,
-        warrantyType,
-        warrantyTime,
-        warrantyPolicy,
+        warrantyType: warrantyType || "no warranty",
+        warrantyTime: warrantyType === "no warranty" ? "" : warrantyTime,
+        warrantyPolicy: warrantyType === "no warranty" ? "" : warrantyPolicy,
+        shippingCharge,
         sku: mainSKU,
         status,
         seoTitle,
@@ -498,6 +600,7 @@ const createProduct = async (req, res, next) => {
       });
     } catch (error) {
       console.error("Product creation error:", error);
+      if (error.status || error.statusCode) return next(error);
       next(createError(500, error.message || "Failed to create product"));
     }
   });
@@ -636,6 +739,8 @@ const getProductById = async (req, res, next) => {
         warrantyPolicy,
         warrantyTime,
         warrantyType,
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
         status,
         seoTitle,
         seoContent,
@@ -658,6 +763,11 @@ const getProductById = async (req, res, next) => {
       length = convert(length);
       width = convert(width);
       height = convert(height);
+      const shippingCharge = normalizeShippingCharge(
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
+        product.shippingCharge
+      );
 
       // Validate numbers
       for (const [key, val] of Object.entries({ weight, length, width, height })) {
@@ -671,9 +781,7 @@ const getProductById = async (req, res, next) => {
         productName === "" ||
         description === "" ||
         category === "" ||
-        brand === "" ||
-        seoTitle === "" ||
-        seoContent === ""
+        brand === ""
       ) {
         return next(createError(400, "Required fields cannot be empty"));
       }
@@ -705,7 +813,7 @@ const getProductById = async (req, res, next) => {
 
             v.price = parseFloat(v.price);
             v.stock = parseInt(v.stock);
-            if (v.discountPrice) v.discountPrice = parseFloat(v.discountPrice);
+            normalizeDiscountFields(v, i);
 
             // Validation
             if (isNaN(v.price) || v.price <= 0)
@@ -749,7 +857,8 @@ const getProductById = async (req, res, next) => {
             v.availability = v.availability;
             
           }
-        } catch {
+        } catch (e) {
+          if (e.status || e.statusCode) return next(e);
           return next(createError(400, "Invalid variants JSON format"));
         }
       }
@@ -796,12 +905,14 @@ const getProductById = async (req, res, next) => {
       if (height) product.height = height;
 
       product.warrantyType = warrantyType || product.warrantyType;
-      product.warrantyTime = warrantyTime || product.warrantyTime;
-      product.warrantyPolicy = warrantyPolicy || product.warrantyPolicy;
+      product.warrantyTime = warrantyType === "no warranty" ? "" : warrantyTime || product.warrantyTime;
+      product.warrantyPolicy =
+        warrantyType === "no warranty" ? "" : warrantyPolicy || product.warrantyPolicy;
+      product.shippingCharge = shippingCharge;
 
       product.status = status;
-      product.seoTitle = seoTitle || product.seoTitle;
-      product.seoContent = seoContent || product.seoContent;
+      product.seoTitle = seoTitle ?? product.seoTitle;
+      product.seoContent = seoContent ?? product.seoContent;
       product.attributes = parsedAttributes;
       product.variants = parsedVariants;
 
@@ -818,6 +929,7 @@ const getProductById = async (req, res, next) => {
       });
     } catch (error) {
       console.error("Product update error:", error);
+      if (error.status || error.statusCode) return next(error);
       next(createError(500, error.message || "Failed to update product"));
     }
   });
@@ -892,9 +1004,7 @@ const updateProduct = async (req, res, next) => {
         productName === "" ||
         description === "" ||
         category === "" ||
-        brand === "" ||
-        seoTitle === "" ||
-        seoContent === ""
+        brand === ""
       ) {
         return next(createError(400, "Required fields cannot be empty"));
       }
@@ -968,7 +1078,7 @@ const updateProduct = async (req, res, next) => {
 
             v.price = parseFloat(v.price);
             v.stock = parseInt(v.stock);
-            if (v.discountPrice) v.discountPrice = parseFloat(v.discountPrice);
+            normalizeDiscountFields(v, i);
 
             // Basic validations
             if (isNaN(v.price) || v.price <= 0)
@@ -1015,7 +1125,8 @@ const updateProduct = async (req, res, next) => {
 
             v.attributes = attr;
           }
-        } catch {
+        } catch (e) {
+          if (e.status || e.statusCode) return next(e);
           return next(createError(400, "Invalid variants JSON format"));
         }
       }
@@ -1072,12 +1183,14 @@ const updateProduct = async (req, res, next) => {
       if (height) product.height = height;
 
       product.warrantyType = warrantyType || product.warrantyType;
-      product.warrantyTime = warrantyTime || product.warrantyTime;
-      product.warrantyPolicy = warrantyPolicy || product.warrantyPolicy;
+      product.warrantyTime = warrantyType === "no warranty" ? "" : warrantyTime || product.warrantyTime;
+      product.warrantyPolicy =
+        warrantyType === "no warranty" ? "" : warrantyPolicy || product.warrantyPolicy;
+      product.shippingCharge = shippingCharge;
 
       product.status = status;
-      product.seoTitle = seoTitle || product.seoTitle;
-      product.seoContent = seoContent || product.seoContent;
+      product.seoTitle = seoTitle ?? product.seoTitle;
+      product.seoContent = seoContent ?? product.seoContent;
 
       product.attributes = parsedAttributes;
       product.variants = parsedVariants;
@@ -1098,6 +1211,7 @@ const updateProduct = async (req, res, next) => {
       });
     } catch (error) {
       console.error("Product update error:", error);
+      if (error.status || error.statusCode) return next(error);
       next(createError(500, error.message || "Failed to update product"));
     }
   });

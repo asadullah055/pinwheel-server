@@ -530,7 +530,26 @@ const buildQuantityMap = (items) => {
 
 const getVariantUnitPrice = (variant) => {
   const discountPrice = Number(variant.discountPrice);
-  return discountPrice > 0 ? discountPrice : Number(variant.price);
+  const regularPrice = Number(variant.price);
+
+  if (!discountPrice || !regularPrice || discountPrice >= regularPrice) {
+    return regularPrice;
+  }
+
+  if (!variant.discountStartDate && !variant.discountEndDate) {
+    return discountPrice;
+  }
+
+  const now = new Date();
+  const startDate = variant.discountStartDate ? new Date(variant.discountStartDate) : null;
+  const endDate = variant.discountEndDate ? new Date(variant.discountEndDate) : null;
+
+  if (startDate && Number.isNaN(startDate.getTime())) return regularPrice;
+  if (endDate && Number.isNaN(endDate.getTime())) return regularPrice;
+  if (startDate && now < startDate) return regularPrice;
+  if (endDate && now > endDate) return regularPrice;
+
+  return discountPrice;
 };
 
 const normalizeVariantAttributes = (attributes) => {

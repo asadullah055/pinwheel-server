@@ -175,12 +175,34 @@ const getPaidUnitPrice = (item) => {
 
   const variant = getItemVariant(item);
   const discountPrice = Number(variant?.discountPrice);
+  const regularPrice = getRegularUnitPrice(item);
 
-  if (Number.isFinite(discountPrice) && discountPrice > 0) {
-    return discountPrice;
+  if (
+    Number.isFinite(discountPrice) &&
+    discountPrice > 0 &&
+    discountPrice < regularPrice
+  ) {
+    if (!variant?.discountStartDate && !variant?.discountEndDate) {
+      return discountPrice;
+    }
+
+    const now = new Date();
+    const startDate = variant.discountStartDate
+      ? new Date(variant.discountStartDate)
+      : null;
+    const endDate = variant.discountEndDate ? new Date(variant.discountEndDate) : null;
+
+    if (
+      (!startDate || now >= startDate) &&
+      (!endDate || now <= endDate) &&
+      (!startDate || !Number.isNaN(startDate.getTime())) &&
+      (!endDate || !Number.isNaN(endDate.getTime()))
+    ) {
+      return discountPrice;
+    }
   }
 
-  return getRegularUnitPrice(item);
+  return regularPrice;
 };
 
 const formatAddress = (address) => {

@@ -4,6 +4,25 @@ const Cart = require("../model/Cart");
 const Product = require("../model/Product");
 const { successMessage } = require("../utils/response");
 
+const isDiscountActive = (variant) => {
+  const discountPrice = Number(variant?.discountPrice);
+  const regularPrice = Number(variant?.price);
+
+  if (!discountPrice || !regularPrice || discountPrice >= regularPrice) return false;
+  if (!variant.discountStartDate && !variant.discountEndDate) return true;
+
+  const now = new Date();
+  const startDate = variant.discountStartDate ? new Date(variant.discountStartDate) : null;
+  const endDate = variant.discountEndDate ? new Date(variant.discountEndDate) : null;
+
+  if (startDate && Number.isNaN(startDate.getTime())) return false;
+  if (endDate && Number.isNaN(endDate.getTime())) return false;
+  if (startDate && now < startDate) return false;
+  if (endDate && now > endDate) return false;
+
+  return true;
+};
+
 const getProductUnitPrice = (product) => {
   if (!Array.isArray(product?.variants) || product.variants.length === 0) {
     return null;
@@ -19,8 +38,9 @@ const getProductUnitPrice = (product) => {
 
   return Math.min(
     ...activeVariants.map((variant) => {
-      const discountPrice = Number(variant.discountPrice);
-      return discountPrice > 0 ? discountPrice : Number(variant.price);
+      return isDiscountActive(variant)
+        ? Number(variant.discountPrice)
+        : Number(variant.price);
     })
   );
 };

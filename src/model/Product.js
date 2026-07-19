@@ -34,6 +34,10 @@ const ProductSchema = new mongoose.Schema(
     warrantyType: { type: String },
     warrantyTime: { type: String },
     warrantyPolicy: { type: String },
+    shippingCharge: {
+      insideDhaka: { type: Number, default: 80 },
+      outsideDhaka: { type: Number, default: 120 },
+    },
     status: {
       type: String,
       enum: ["published", "unpublished"],
@@ -41,8 +45,8 @@ const ProductSchema = new mongoose.Schema(
     },
 
     // SEO
-    seoTitle: { type: String, required: true },
-    seoContent: { type: String, required: true },
+    seoTitle: { type: String, default: "" },
+    seoContent: { type: String, default: "" },
     // Attributes
     attributes: [
       {
