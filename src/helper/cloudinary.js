@@ -11,7 +11,7 @@ cloudinary.config({
 });
 
 uploadToCloudinary = async (path, folder)=>{
-    const result = await cloudinary.uploader.upload(path, {folder})
+    const result = await cloudinary.uploader.upload(path, {folder, resource_type: "auto"})
     return result
 }
 const deleteFromCloudinary = async (imageUrl) => {

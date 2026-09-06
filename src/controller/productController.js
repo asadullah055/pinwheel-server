@@ -1244,7 +1244,7 @@ const getProductBySlug = async (req, res, next) => {
     })
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email")
+      .populate("creator", "name shopName shopUrl shopLogo profileImageUrl sellerId")
       .lean();
 
     if (!product) {

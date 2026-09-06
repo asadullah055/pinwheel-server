@@ -10,6 +10,7 @@ const {
   verifyOTP,
   changePassword,
   updateProfile,
+  updateSellerProfile,
   profileDetails,
   verifyEmail,
 } = require("../controller/authController");
@@ -26,6 +27,7 @@ router.post("send-otp", sendOtp);
 router.post("/verify-otp", verifyOTP);
 router.put("/update-password", protect, changePassword);
 router.put("/update-profile", protect, updateProfile);
+router.put("/seller-profile", protect, updateSellerProfile);
 router.get("/profile", protect, profileDetails);
 router.put('verify-email', protect, verifyEmail);
 router.post("/reset-password", resetPassword);

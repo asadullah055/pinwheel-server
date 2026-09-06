@@ -13,6 +13,52 @@ const { refreshSecretKey } = require("../../secret");
 const { sendEmail } = require("../utils/sendEmail");
 const crypto = require("crypto");
 const { generateUniqueSellerId } = require("../utils/sellerIdGenerator");
+const formidable = require("formidable");
+const {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} = require("../helper/cloudinary");
+
+const getFormValue = (value) => {
+  const normalizedValue = Array.isArray(value) ? value[0] : value;
+  return typeof normalizedValue === "string" ? normalizedValue.trim() : "";
+};
+
+const createSlug = (value) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const createUniqueShopUrl = async (shopName, userId) => {
+  const baseSlug = createSlug(shopName) || `seller-${userId}`;
+  let shopUrl = baseSlug;
+  let suffix = 1;
+
+  while (
+    await Users.exists({
+      _id: { $ne: userId },
+      shopUrl,
+    })
+  ) {
+    shopUrl = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+
+  return shopUrl;
+};
+
+const getOptionalDate = (value) => {
+  const normalizedValue = getFormValue(value);
+  if (!normalizedValue) return null;
+
+  const date = new Date(normalizedValue);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const isSupportedIdentityFile = (file) =>
+  file?.mimetype?.startsWith("image/") || file?.mimetype === "application/pdf";
 
 const register = async (req, res, next) => {
   try {
@@ -135,20 +181,13 @@ const sendOtp = async (req, res, next) => {
 
 const updateProfile = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
-    const userId = req.user._id;
+    const { name, password } = req.body;
+    const userId = req.id;
     const user = await Users.findById(userId);
     if (!user) {
       throw createError(404, "User not found");
     }
-    if (email) {
-      const existingUser = await Users.findOne({ email });
-      if (existingUser && existingUser._id.toString() !== userId.toString()) {
-        throw createError(409, "Email already in use");
-      }
-    }
     user.name = name || user.name;
-    user.email = email || user.email;
     if (password) {
       user.password = password;
     }
@@ -174,6 +213,166 @@ const profileDetails = async (req, res, next) => {
     console.log(error);
     next(error);
   }
+};
+
+const updateSellerProfile = async (req, res, next) => {
+  const form = formidable({
+    maxFileSize: 5 * 1024 * 1024,
+    keepExtensions: true,
+  });
+
+  form.parse(req, async (parseError, fields, files) => {
+    if (parseError) {
+      return next(createError(400, "Unable to process profile data"));
+    }
+
+    try {
+      const sellerName = getFormValue(fields.name);
+      const shopName = getFormValue(fields.shopName);
+      const mobileNumber = getFormValue(fields.mobileNumber);
+      const shopLocation = getFormValue(fields.shopLocation);
+      const holidayMode = getFormValue(fields.holidayMode) === "true";
+      const holidayStartDate = getOptionalDate(fields.holidayStartDate);
+      const holidayEndDate = getOptionalDate(fields.holidayEndDate);
+      const nationalIdentityCardNo = getFormValue(
+        fields.nationalIdentityCardNo
+      );
+      const bankAccountName = getFormValue(fields.bankAccountName);
+      const bankAccountNumber = getFormValue(fields.bankAccountNumber);
+      const bankNameOrMfs = getFormValue(fields.bankNameOrMfs);
+      const bankRoutingNumber = getFormValue(fields.bankRoutingNumber);
+      const bankBranchName = getFormValue(fields.bankBranchName);
+
+      if (!sellerName || !shopName || !mobileNumber || !shopLocation) {
+        throw createError(
+          400,
+          "Seller name, shop name, mobile number and address are required"
+        );
+      }
+
+      if (!/^[+0-9][0-9\s-]{6,19}$/.test(mobileNumber)) {
+        throw createError(400, "Please enter a valid mobile number");
+      }
+
+      if (holidayMode && (!holidayStartDate || !holidayEndDate)) {
+        throw createError(400, "Holiday mode period is required");
+      }
+
+      if (
+        holidayMode &&
+        holidayStartDate &&
+        holidayEndDate &&
+        holidayEndDate < holidayStartDate
+      ) {
+        throw createError(400, "Holiday end date cannot be before start date");
+      }
+
+      const user = await Users.findById(req.id);
+      if (!user) {
+        throw createError(404, "User not found");
+      }
+
+      if (!user.sellerId) {
+        user.sellerId = await generateUniqueSellerId();
+      }
+
+      const uploadedFile = Array.isArray(files.shopLogo)
+        ? files.shopLogo[0]
+        : files.shopLogo;
+      const previousLogo = user.shopLogo;
+      const idCopyFrontFile = Array.isArray(files.idCopyFront)
+        ? files.idCopyFront[0]
+        : files.idCopyFront;
+      const idCopyBackFile = Array.isArray(files.idCopyBack)
+        ? files.idCopyBack[0]
+        : files.idCopyBack;
+      const previousIdCopyFront = user.idCopyFrontUrl;
+      const previousIdCopyBack = user.idCopyBackUrl;
+
+      if (uploadedFile) {
+        if (!uploadedFile.mimetype?.startsWith("image/")) {
+          throw createError(400, "Shop logo must be an image file");
+        }
+
+        const uploadResult = await uploadToCloudinary(
+          uploadedFile.filepath,
+          "seller-logos"
+        );
+        user.shopLogo = uploadResult.secure_url;
+      }
+
+      if (idCopyFrontFile) {
+        if (!isSupportedIdentityFile(idCopyFrontFile)) {
+          throw createError(400, "Front side ID copy must be an image or PDF");
+        }
+
+        const uploadResult = await uploadToCloudinary(
+          idCopyFrontFile.filepath,
+          "seller-id-copies"
+        );
+        user.idCopyFrontUrl = uploadResult.secure_url;
+      }
+
+      if (idCopyBackFile) {
+        if (!isSupportedIdentityFile(idCopyBackFile)) {
+          throw createError(400, "Back side ID copy must be an image or PDF");
+        }
+
+        const uploadResult = await uploadToCloudinary(
+          idCopyBackFile.filepath,
+          "seller-id-copies"
+        );
+        user.idCopyBackUrl = uploadResult.secure_url;
+      }
+
+      user.name = sellerName;
+      user.shopName = shopName;
+      user.shopUrl = await createUniqueShopUrl(shopName, user._id);
+      user.mobileNumber = mobileNumber;
+      user.shopLocation = shopLocation;
+      user.holidayMode = holidayMode;
+      user.holidayStartDate = holidayMode ? holidayStartDate : null;
+      user.holidayEndDate = holidayMode ? holidayEndDate : null;
+      user.nationalIdentityCardNo = nationalIdentityCardNo;
+      user.bankAccountName = bankAccountName;
+      user.bankAccountNumber = bankAccountNumber;
+      user.bankNameOrMfs = bankNameOrMfs;
+      user.bankRoutingNumber = bankRoutingNumber;
+      user.bankBranchName = bankBranchName;
+      await user.save();
+
+      if (uploadedFile && previousLogo && previousLogo !== user.shopLogo) {
+        await deleteFromCloudinary(previousLogo);
+      }
+
+      if (
+        idCopyFrontFile &&
+        previousIdCopyFront &&
+        previousIdCopyFront !== user.idCopyFrontUrl
+      ) {
+        await deleteFromCloudinary(previousIdCopyFront);
+      }
+
+      if (
+        idCopyBackFile &&
+        previousIdCopyBack &&
+        previousIdCopyBack !== user.idCopyBackUrl
+      ) {
+        await deleteFromCloudinary(previousIdCopyBack);
+      }
+
+      const profile = await Users.findById(user._id).select(
+        "-password -createdAt -updatedAt -refreshToken -otp -otpExpires -unlockToken -loginAttempts -lockUntil"
+      );
+
+      return successMessage(res, 200, {
+        message: "Seller profile updated successfully",
+        user: profile,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
 };
 
 // change password get full code same times
@@ -421,6 +620,7 @@ module.exports = {
   logout,
   refreshAccessToken,
   updateProfile,
+  updateSellerProfile,
   profileDetails,
   changePassword,
   verifyEmail,

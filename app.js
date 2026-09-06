@@ -19,26 +19,26 @@ const dns = require("dns");
     max: 50,
     message: "Too many request from this API",
   }); */
-  dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
 
-  const allowedOrigins = [
-    "https://pinwheel-dash.vercel.app",
-    "http://localhost:5173", // your local frontend
-    "http://localhost:3000", // your local frontend
-    "https://www.cartout.com.bd", // your local frontend
-  ];
-  
-  const corsOptions = {
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  };
-  
+const allowedOrigins = [
+  "https://pinwheel-dash.vercel.app",
+  "http://localhost:5173", // your local frontend
+  "http://localhost:3000", // your local frontend
+  "https://www.cartout.com.bd", // your local frontend
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+};
+
 app.use(cors(corsOptions));
 // app.use(rateLimiter);
 app.use(express.json());
