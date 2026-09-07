@@ -51,6 +51,25 @@ const normalizeShippingCharge = (
   };
 };
 
+const parseExistingImages = (value, fallback = []) => {
+  if (value === undefined || value === null) return fallback;
+
+  const values = Array.isArray(value) ? value : [value];
+  const images = [];
+
+  for (const item of values) {
+    try {
+      const parsed = JSON.parse(item);
+      const parsedImages = Array.isArray(parsed) ? parsed : [parsed];
+      images.push(...parsedImages.filter((image) => typeof image === "string"));
+    } catch {
+      if (typeof item === "string" && item.trim()) images.push(item.trim());
+    }
+  }
+
+  return images;
+};
+
 const normalizeDiscountFields = (variant, index) => {
   if (variant.discountPrice === "" || variant.discountPrice === null) {
     delete variant.discountPrice;
@@ -968,6 +987,7 @@ const updateProduct = async (req, res, next) => {
         seoContent,
         attributes,
         variants,
+        existingImages,
       } = fields;
 
       // Trim strings
@@ -1141,7 +1161,7 @@ const updateProduct = async (req, res, next) => {
       /* ------------------------------------------------------------------
        ✔️ Handle image uploads
       ------------------------------------------------------------------ */
-      let updatedImages = product.images;
+      let updatedImages = parseExistingImages(existingImages, product.images);
 
       if (files.images) {
         const allowedTypes = [
