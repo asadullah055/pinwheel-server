@@ -961,6 +961,8 @@ const updateProduct = async (req, res, next) => {
         warrantyPolicy,
         warrantyTime,
         warrantyType,
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
         status,
         seoTitle,
         seoContent,
@@ -984,6 +986,11 @@ const updateProduct = async (req, res, next) => {
       length = convert(length);
       width = convert(width);
       height = convert(height);
+      const shippingCharge = normalizeShippingCharge(
+        shippingInsideDhaka,
+        shippingOutsideDhaka,
+        product.shippingCharge
+      );
 
       // Validate number fields
       for (const [key, val] of Object.entries({
