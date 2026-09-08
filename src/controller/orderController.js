@@ -734,19 +734,41 @@ const updateOrderStatus = async (req, res, next) => {
       });
     }
 
-    const qtyMap = buildQuantityMap(order.items);
+    const shouldRestoreStockItems = order.items.filter(
+      (item) => item.stockAdjusted !== false
+    );
+    const shouldReserveStockItems = order.items.filter(
+      (item) => item.stockAdjusted === false
+    );
 
-
-    if (status === "Cancelled" && order.stockAdjusted) {
+    if (status === "Cancelled" && shouldRestoreStockItems.length > 0) {
+      const qtyMap = buildQuantityMap(shouldRestoreStockItems);
       for (const adjustment of qtyMap.values()) {
         await increaseStockAdjustment(adjustment);
       }
       order.stockAdjusted = false;
     }
 
+    if (status !== "Cancelled" && shouldReserveStockItems.length > 0) {
+      const qtyMap = buildQuantityMap(shouldReserveStockItems);
+      for (const adjustment of qtyMap.values()) {
+        if (!adjustment.variantId) {
+          throw createError(400, "Cannot restore legacy item without variant information");
+        }
+
+        await decreaseVariantStock(
+          adjustment.productId,
+          adjustment.variantId,
+          adjustment.quantity
+        );
+      }
+      order.stockAdjusted = true;
+    }
+
     order.status = status;
     order.items.forEach((item) => {
       item.status = status;
+      item.stockAdjusted = status !== "Cancelled";
     });
     await order.save({ validateBeforeSave: false });
 

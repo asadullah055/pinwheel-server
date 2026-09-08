@@ -70,6 +70,19 @@ const parseExistingImages = (value, fallback = []) => {
   return images;
 };
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const getSkuSearchTerms = (value) => {
+  const terms = [value];
+  const withoutLabel = value.replace(/^sku[-:\s]*/i, "").trim();
+
+  if (withoutLabel && withoutLabel !== value) {
+    terms.push(withoutLabel);
+  }
+
+  return [...new Set(terms)];
+};
+
 const normalizeDiscountFields = (variant, index) => {
   if (variant.discountPrice === "" || variant.discountPrice === null) {
     delete variant.discountPrice;
@@ -630,6 +643,11 @@ const getAllProducts = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const skuQuery = getFieldValue(req.query.sku);
+    const skuSearch =
+      req.role === "admin" && typeof skuQuery === "string"
+        ? skuQuery.trim()
+        : "";
 
     let filter = {};
 
@@ -639,6 +657,15 @@ const getAllProducts = async (req, res, next) => {
       }
     } else {
       filter.status = "published";
+    }
+
+    if (skuSearch) {
+      const skuConditions = getSkuSearchTerms(skuSearch).flatMap((term) => {
+        const skuRegex = new RegExp(escapeRegex(term), "i");
+        return [{ sku: skuRegex }, { "variants.sku": skuRegex }];
+      });
+
+      filter.$or = skuConditions;
     }
 
     const totalProducts = await Product.countDocuments(filter);
@@ -1152,6 +1179,8 @@ const updateProduct = async (req, res, next) => {
 
             v.attributes = attr;
           }
+
+          parsedVariants = await generateVariantSKUs(parsedVariants);
         } catch (e) {
           if (e.status || e.statusCode) return next(e);
           return next(createError(400, "Invalid variants JSON format"));
