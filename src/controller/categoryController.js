@@ -115,43 +115,55 @@ const updateCategory = async (req, res, next) => {
 
   form.parse(req, async (err, fields, files) => {
     if (err) {
-      throw createError(401, "Error parsing form data");
+      return next(createError(400, "Error parsing form data"));
     }
+
     try {
       const { id } = req.params;
       const category = await Category.findById(id);
       if (!category) {
-        throw createError(404, "Category not found");
+        return next(createError(404, "Category not found"));
       }
 
-      let { name } = fields;
-      let { image } = files;
+      const fieldName = Array.isArray(fields.name) ? fields.name[0] : fields.name;
+      const fieldStatus = Array.isArray(fields.status)
+        ? fields.status[0]
+        : fields.status;
+      const name = fieldName?.trim();
 
-      if (!name && !image) {
-        throw createError(400, "Category name and image are required");
+      if (!name) {
+        return next(createError(400, "Category name is required"));
       }
 
-      name = name.trim();
-      const slug = name.split(" ").join("-");
-      // Upload image to Cloudinary
-      const result = await uploadToCloudinary(image.filepath, "pinwheel");
-      if (!result) {
-        throw createError(400, "Image upload failed");
+      const duplicate = await Category.findOne({
+        _id: { $ne: id },
+        name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+      });
+
+      if (duplicate) {
+        return next(createError(400, "Category name already exists"));
       }
-      // Create the brand
-      const brand = await Category.findByIdAndUpdate(
-        id,
-        {
-          name,
-          slug,
-          image: result.url,
-          creator: req.id,
-        },
-        { new: true }
-      );
+
+      const imageFile = Array.isArray(files.image) ? files.image[0] : files.image;
+      if (imageFile) {
+        const result = await uploadToCloudinary(imageFile.filepath, "pinwheel");
+        if (!result) return next(createError(400, "Image upload failed"));
+        category.image = result.url;
+      }
+
+      if (fieldStatus && !["active", "inactive"].includes(fieldStatus)) {
+        return next(createError(400, "Invalid category status"));
+      }
+
+      category.name = name;
+      category.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (fieldStatus) category.status = fieldStatus;
+      category.creator = req.id;
+      await category.save();
+
       return successMessage(res, 200, {
         message: "Category updated successfully",
-        brand,
+        category,
       });
     } catch (error) {
       console.error(error);
