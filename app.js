@@ -23,23 +23,36 @@ dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"]);
 
 const allowedOrigins = [
   "https://pinwheel-dash.vercel.app",
-  "http://localhost:5173", // your local frontend
-  "http://localhost:3000", // your local frontend
-  "https://www.cartout.com.bd", // your local frontend
+  "https://www.cartout.com.bd",
+  "https://cartout.com.bd",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  ...(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    const isAllowedVercelPreview =
+      origin &&
+      /^https:\/\/(?:cartout|pinwheel-dash)(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
+
+    if (!origin || allowedOrigins.includes(origin) || isAllowedVercelPreview) {
       callback(null, true);
     } else {
-      callback(new Error("Not allowed by CORS"));
+      callback(null, false);
     }
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 // app.use(rateLimiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

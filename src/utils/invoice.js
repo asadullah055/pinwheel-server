@@ -251,12 +251,19 @@ const formatAddress = (address) => {
   return parts.filter(Boolean).join(", ");
 };
 
+const getInvoiceLogoUrl = () =>
+  process.env.INVOICE_LOGO_URL ||
+  process.env.CARTOUT_LOGO_URL ||
+  "https://www.cartout.com.bd/images/darklogo.png";
+
 const getLogoDataUri = () => {
   if (cachedLogoDataUri !== null) return cachedLogoDataUri;
 
   const logoPaths = [
     process.env.INVOICE_LOGO_PATH,
+    path.resolve(__dirname, "../../../cartout/public/images/darklogo.png"),
     path.resolve(__dirname, "../../../cartout/public/images/mainlogo.png"),
+    path.resolve(__dirname, "../../../public/images/darklogo.png"),
     path.resolve(__dirname, "../../../dashboard/public/image/mainlogo.png"),
     path.resolve(__dirname, "../../../cartout/public/images/cartout2.png"),
     path.resolve(__dirname, "../../../dashboard/public/image/logo.png"),
@@ -329,7 +336,7 @@ const buildInvoiceHtml = (order, options = {}) => {
   const footerContact = getFooterContact();
   const logoMarkup = logoDataUri
     ? `<img src="${logoDataUri}" alt="CartOut" />`
-    : `<strong><span>Cart</span><em>Out</em></strong><small>Add To Cart And Checkout</small>`;
+    : `<img src="${escapeHtml(getInvoiceLogoUrl())}" alt="CartOut" />`;
   const sellerLogoMarkup = sellerLogoSrc
     ? `<img src="${escapeHtml(sellerLogoSrc)}" alt="${escapeHtml(sellerName)} logo" />`
     : `<span class="seller-logo-placeholder">${iconSvg("image")}</span><strong>SELLER LOGO</strong>`;
@@ -447,17 +454,21 @@ const buildInvoiceHtml = (order, options = {}) => {
       }
       .brand-logo {
         width: 123mm;
-        padding-top: 1mm;
+        height: 39mm;
+        padding: 3mm 4mm;
+        border-radius: 2mm;
+        background: #080d27;
+        position: relative;
         overflow: hidden;
       }
       .brand-logo img {
         display: block;
-        width: 118mm;
-        height: 35mm;
-        object-fit: contain;
-        object-position: left center;
-        transform: scale(1.58);
-        transform-origin: left center;
+        width: 112mm;
+        height: auto;
+        position: absolute;
+        left: 4mm;
+        top: 50%;
+        transform: translateY(-50%);
       }
       .brand-logo strong {
         display: block;
