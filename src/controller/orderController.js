@@ -7,6 +7,7 @@ const { successMessage } = require("../utils/response");
 const { sendEmail } = require("../utils/sendEmail");
 
 const requiredAddressFields = ["street", "city", "state", "postalCode", "country"];
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ORDER_STATUSES = [
   "Pending",
@@ -56,6 +57,16 @@ const createOrder = async (req, res, next) => {
       if (!customer.phone || !String(customer.phone).trim()) {
         throw createError(400, "Customer phone is required for guest order");
       }
+      if (!customer.email || !String(customer.email).trim()) {
+        throw createError(400, "Customer email is required for invoice email");
+      }
+    }
+
+    if (
+      customer?.email &&
+      !EMAIL_PATTERN.test(String(customer.email).trim().toLowerCase())
+    ) {
+      throw createError(400, "Customer email must be a valid email address");
     }
 
     const parsedShippingFee = Number(shippingFee ?? 0);
@@ -248,8 +259,8 @@ const getAllOrders = async (req, res, next) => {
 
     const orders = await Order.find({})
       .populate("user", "name email")
-      .populate("sellers", "name email")
-      .populate("items.seller", "name email")
+      .populate("sellers", "name email shopName shopLogo mobileNumber")
+      .populate("items.seller", "name email shopName shopLogo mobileNumber")
       .populate("items.product", "productName slug images creator")
       .sort({ createdAt: -1 });
 
@@ -280,8 +291,8 @@ const getSellerOrders = async (req, res, next) => {
       ],
     })
       .populate("user", "name email")
-      .populate("sellers", "name email")
-      .populate("items.seller", "name email")
+      .populate("sellers", "name email shopName shopLogo mobileNumber")
+      .populate("items.seller", "name email shopName shopLogo mobileNumber")
       .populate("items.product", "productName slug images creator")
       .sort({ createdAt: -1 });
     const sellerOrders = orders
@@ -302,8 +313,8 @@ const getMyOrders = async (req, res, next) => {
   try {
     const orders = await Order.find({ user: req.id })
       .populate("user", "name email")
-      .populate("sellers", "name email")
-      .populate("items.seller", "name email")
+      .populate("sellers", "name email shopName shopLogo mobileNumber")
+      .populate("items.seller", "name email shopName shopLogo mobileNumber")
       .populate("items.product", "productName slug images creator")
       .sort({ createdAt: -1 });
 
@@ -336,8 +347,8 @@ const findPopulatedOrderById = (id, options = {}) => {
 
   return query
     .populate("user", "name email")
-    .populate("sellers", "name email")
-    .populate("items.seller", "name email")
+    .populate("sellers", "name email shopName shopLogo mobileNumber")
+    .populate("items.seller", "name email shopName shopLogo mobileNumber")
     .populate("items.product", "productName slug sku images creator variants");
 };
 
@@ -641,7 +652,7 @@ const updateOrderItemStatus = async (req, res, next) => {
     }
 
     const order = await Order.findById(orderId)
-      .populate("items.seller", "name email")
+      .populate("items.seller", "name email shopName shopLogo mobileNumber")
       .populate("items.product", "productName slug images creator");
 
     if (!order) {

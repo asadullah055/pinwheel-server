@@ -215,6 +215,28 @@ const profileDetails = async (req, res, next) => {
   }
 };
 
+const getAllSellers = async (req, res, next) => {
+  try {
+    if (req.role !== "admin") {
+      throw createError(403, "Only admin can view sellers");
+    }
+
+    const sellers = await Users.find({ role: "seller" })
+      .select(
+        "name email sellerId shopName shopLogo shopUrl mobileNumber shopLocation isVerified holidayMode createdAt"
+      )
+      .sort({ createdAt: -1 });
+
+    successMessage(res, 200, {
+      message: "Sellers fetched successfully",
+      totalSellers: sellers.length,
+      sellers,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateSellerProfile = async (req, res, next) => {
   const form = formidable({
     maxFileSize: 5 * 1024 * 1024,
@@ -622,6 +644,7 @@ module.exports = {
   updateProfile,
   updateSellerProfile,
   profileDetails,
+  getAllSellers,
   changePassword,
   verifyEmail,
   verifyOTP,

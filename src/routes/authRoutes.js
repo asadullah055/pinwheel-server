@@ -12,6 +12,7 @@ const {
   updateProfile,
   updateSellerProfile,
   profileDetails,
+  getAllSellers,
   verifyEmail,
 } = require("../controller/authController");
 const { protect } = require("../middleware/authMiddleware");
@@ -29,6 +30,7 @@ router.put("/update-password", protect, changePassword);
 router.put("/update-profile", protect, updateProfile);
 router.put("/seller-profile", protect, updateSellerProfile);
 router.get("/profile", protect, profileDetails);
+router.get("/sellers", protect, getAllSellers);
 router.put('verify-email', protect, verifyEmail);
 router.post("/reset-password", resetPassword);
 

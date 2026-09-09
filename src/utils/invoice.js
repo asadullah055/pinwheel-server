@@ -103,6 +103,24 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const iconSvg = (name) => {
+  const attrs =
+    'class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const icons = {
+    cart: `<svg ${attrs}><circle cx="9" cy="21" r="1.5"/><circle cx="19" cy="21" r="1.5"/><path d="M2.5 3h3l2.4 12.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L22 7H7"/></svg>`,
+    clipboard: `<svg ${attrs}><path d="M9 4h6"/><path d="M9 2h6v4H9z"/><path d="M7 4H5.8A1.8 1.8 0 0 0 4 5.8v14.4A1.8 1.8 0 0 0 5.8 22h12.4a1.8 1.8 0 0 0 1.8-1.8V5.8A1.8 1.8 0 0 0 18.2 4H17"/><path d="M8 11h8"/><path d="M8 16h5"/></svg>`,
+    facebook: `<svg class="icon-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 8h2V5h-2.4C10.8 5 9 6.8 9 9.6V12H7v3h2v6h3v-6h2.4l.6-3h-3V9.8c0-1.1.4-1.8 2-1.8z"/></svg>`,
+    fileText: `<svg ${attrs}><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>`,
+    globe: `<svg ${attrs}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></svg>`,
+    image: `<svg ${attrs}><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-5-5L5 19"/></svg>`,
+    mail: `<svg ${attrs}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>`,
+    phone: `<svg ${attrs}><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9z"/></svg>`,
+    user: `<svg ${attrs}><circle cx="12" cy="8" r="4"/><path d="M4 22a8 8 0 0 1 16 0"/></svg>`,
+  };
+
+  return icons[name] || "";
+};
+
 const getOrderNumber = (order) =>
   order?.orderNumber ? `#${order.orderNumber}` : `#${String(order?._id || "").slice(-8)}`;
 
@@ -111,7 +129,11 @@ const getProductName = (item) => item?.product?.productName || item?.name || "Pr
 const getInvoiceSku = (item) => item?.product?.sku || item?.sku || "N/A";
 
 const getSellerName = (item) =>
-  item?.seller?.name || item?.product?.creator?.name || "Cartout Seller";
+  item?.seller?.shopName ||
+  item?.seller?.name ||
+  item?.product?.creator?.shopName ||
+  item?.product?.creator?.name ||
+  "Cartout Seller";
 
 const getSellerHeaderName = (order) => {
   const items = Array.isArray(order?.items) ? order.items : [];
@@ -232,23 +254,50 @@ const formatAddress = (address) => {
 const getLogoDataUri = () => {
   if (cachedLogoDataUri !== null) return cachedLogoDataUri;
 
-  const logoPath =
-    process.env.INVOICE_LOGO_PATH ||
-    path.resolve(__dirname, "../../../client/public/images/mainlogo.png");
+  const logoPaths = [
+    process.env.INVOICE_LOGO_PATH,
+    path.resolve(__dirname, "../../../cartout/public/images/mainlogo.png"),
+    path.resolve(__dirname, "../../../dashboard/public/image/mainlogo.png"),
+    path.resolve(__dirname, "../../../cartout/public/images/cartout2.png"),
+    path.resolve(__dirname, "../../../dashboard/public/image/logo.png"),
+    path.resolve(__dirname, "../../../client/public/images/mainlogo.png"),
+  ].filter(Boolean);
 
-  try {
-    if (fs.existsSync(logoPath)) {
-      cachedLogoDataUri = `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`;
+  for (const logoPath of logoPaths) {
+    try {
+      if (fs.existsSync(logoPath)) {
+        cachedLogoDataUri = `data:image/png;base64,${fs.readFileSync(logoPath).toString("base64")}`;
+        return cachedLogoDataUri;
+      }
+    } catch (error) {
+      cachedLogoDataUri = "";
       return cachedLogoDataUri;
     }
-  } catch (error) {
-    cachedLogoDataUri = "";
-    return cachedLogoDataUri;
   }
 
   cachedLogoDataUri = "";
   return cachedLogoDataUri;
 };
+
+const getSellerLogoSrc = (order) => {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const sellerLogo =
+    order?.sellerLogo ||
+    items.find((item) => item?.seller?.shopLogo)?.seller?.shopLogo ||
+    items.find((item) => item?.product?.creator?.shopLogo)?.product?.creator?.shopLogo;
+
+  if (!sellerLogo) return "";
+
+  return String(sellerLogo);
+};
+
+const getFooterContact = () => ({
+  email: process.env.CARTOUT_SUPPORT_EMAIL || "your@email.com",
+  phone: process.env.CARTOUT_SUPPORT_PHONE || "+880 1XXX-XXXXXX",
+  website: process.env.CARTOUT_WEBSITE || "www.cartout.com.bd",
+  facebook:
+    process.env.CARTOUT_FACEBOOK || "www.facebook.com/cartoutofficial",
+});
 
 const buildInvoiceEmailHtml = (order) => {
   const customerName = order?.customer?.name || order?.user?.name || "Customer";
@@ -276,9 +325,14 @@ const buildInvoiceHtml = (order, options = {}) => {
   const codAmount = Math.max(payableAmount - advance, 0);
   const sellerName = getSellerHeaderName(order);
   const logoDataUri = getLogoDataUri();
+  const sellerLogoSrc = getSellerLogoSrc(order);
+  const footerContact = getFooterContact();
   const logoMarkup = logoDataUri
     ? `<img src="${logoDataUri}" alt="CartOut" />`
-    : `<div class="cart-icon" aria-hidden="true"></div><strong>CartOut</strong><small>Aunit to Cart And Checkout</small>`;
+    : `<strong><span>Cart</span><em>Out</em></strong><small>Add To Cart And Checkout</small>`;
+  const sellerLogoMarkup = sellerLogoSrc
+    ? `<img src="${escapeHtml(sellerLogoSrc)}" alt="${escapeHtml(sellerName)} logo" />`
+    : `<span class="seller-logo-placeholder">${iconSvg("image")}</span><strong>SELLER LOGO</strong>`;
   const scopeLabel = options.scopeLabel
     ? `<span class="scope-label">${escapeHtml(options.scopeLabel)}</span>`
     : "";
@@ -304,6 +358,12 @@ const buildInvoiceHtml = (order, options = {}) => {
       `;
     })
     .join("");
+  const blankRows = Array.from({ length: Math.max(0, 4 - items.length) })
+    .map(
+      () =>
+        '<tr class="empty-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'
+    )
+    .join("");
 
   return `<!doctype html>
 <html lang="en">
@@ -322,137 +382,192 @@ const buildInvoiceHtml = (order, options = {}) => {
       body {
         margin: 0;
         background: #ffffff;
-        color: #222222;
+        color: #080d27;
         font-family: Arial, Helvetica, sans-serif;
       }
       .invoice-sheet {
         width: 210mm;
-        min-height: 297mm;
+        height: 297mm;
         margin: 0 auto;
-        padding: 11mm 12mm 8mm;
+        padding: 12mm 8.5mm 20mm;
         background: #ffffff;
         position: relative;
+        overflow: hidden;
+      }
+      .top-band,
+      .bottom-band {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 6.2mm;
+        background: #ffb000;
+      }
+      .top-band {
+        top: 0;
+      }
+      .bottom-band {
+        bottom: 0;
+      }
+      .top-band::before,
+      .bottom-band::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        width: 97mm;
+        height: 100%;
+        background: #080d27;
+      }
+      .top-band::after {
+        content: "";
+        position: absolute;
+        left: 96mm;
+        top: 0;
+        border-left: 5mm solid #ffffff;
+        border-top: 6.2mm solid transparent;
+      }
+      .bottom-band::before {
+        left: auto;
+        right: 0;
+      }
+      .bottom-band::after {
+        content: "";
+        position: absolute;
+        right: 96mm;
+        top: 0;
+        border-right: 5mm solid #ffffff;
+        border-bottom: 6.2mm solid transparent;
       }
       .header {
         display: flex;
+        align-items: flex-start;
         justify-content: space-between;
-        align-items: stretch;
-        min-height: 27mm;
-        border: 1px solid #111111;
-        background: #ffcc42;
+        gap: 8mm;
+        min-height: 41mm;
+        margin-bottom: 4mm;
       }
-      .header-left {
+      .brand-logo {
+        width: 123mm;
+        padding-top: 1mm;
+        overflow: hidden;
+      }
+      .brand-logo img {
+        display: block;
+        width: 118mm;
+        height: 35mm;
+        object-fit: contain;
+        object-position: left center;
+        transform: scale(1.58);
+        transform-origin: left center;
+      }
+      .brand-logo strong {
+        display: block;
+        font-size: 36px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+      .brand-logo em {
+        color: #f8ad00;
+        font-style: normal;
+      }
+      .brand-logo small {
+        display: block;
+        font-size: 12px;
+        line-height: 1;
+        margin-left: 53mm;
+      }
+      .seller-panel {
+        flex: 1;
+        min-height: 40mm;
+        border-left: 1px solid #cfcfcf;
+        padding-left: 8mm;
+        text-align: center;
+      }
+      .seller-logo {
+        width: 45mm;
+        height: 28mm;
+        margin: 0 auto 5mm;
+        border: 1px dashed #8d8d8d;
+        border-radius: 3mm;
+        display: grid;
+        place-items: center;
+        color: #6e6e6e;
+        font-size: 13px;
+        font-weight: 700;
+        overflow: hidden;
+      }
+      .seller-logo img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .seller-logo-placeholder {
+        display: block;
+        width: 13mm;
+        height: 13mm;
+        margin: 0 auto 2mm;
+        color: #6e6e6e;
+      }
+      .seller-name {
         display: flex;
         align-items: center;
-        gap: 6mm;
-        padding: 3mm 4mm;
+        justify-content: center;
+        gap: 3mm;
+        font-size: 15px;
+        font-weight: 700;
       }
-      .placeholder {
-        width: 22mm;
-        height: 22mm;
-        border: 2px solid #111111;
-        background: #ffffff;
-        position: relative;
-        flex: 0 0 auto;
-      }
-      .placeholder::before,
-      .placeholder::after {
-        content: "";
-        position: absolute;
-        left: 4mm;
-        right: 4mm;
-        top: 10mm;
-        border-top: 2px solid #111111;
-        transform: rotate(-42deg);
-      }
-      .placeholder::after {
-        transform: rotate(42deg);
-      }
-      .placeholder span {
-        position: absolute;
-        left: 5mm;
-        top: 6mm;
-        width: 11mm;
-        height: 9mm;
-        border: 2px solid #111111;
-        border-radius: 1mm;
-        background: #ffffff;
-      }
-      .header-copy h1 {
-        margin: 1mm 0 1mm;
-        font-size: 22px;
-        line-height: 1;
-        font-weight: 400;
-      }
-      .header-copy p {
-        margin: 0.8mm 0;
+      .seller-avatar,
+      .contact-icon {
+        width: 8mm;
+        height: 8mm;
+        border-radius: 50%;
+        background: #080d27;
+        color: #ffffff;
+        display: inline-grid;
+        place-items: center;
         font-size: 13px;
-        line-height: 1.15;
+        font-weight: 700;
+        flex: 0 0 auto;
       }
       .scope-label {
         display: inline-block;
         margin-left: 2mm;
+        color: #f8ad00;
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
       }
-      .brand-mark {
-        width: 28mm;
-        border-left: 1px solid #111111;
-        display: grid;
-        place-items: center;
-        padding: 2mm 1.5mm;
-        text-align: center;
-      }
-      .brand-mark img {
-        display: block;
-        width: 24mm;
-        height: auto;
-        max-height: 22mm;
-        object-fit: contain;
-      }
-      .cart-icon {
-        width: 18mm;
-        height: 12mm;
-        border: 3px solid #111111;
-        border-top: 0;
-        transform: skewX(-12deg);
-        margin: 0 auto 1mm;
-        position: relative;
-      }
-      .cart-icon::before {
-        content: "";
-        position: absolute;
-        width: 8mm;
-        border-top: 3px solid #111111;
-        left: -6mm;
-        top: 0;
-        transform: rotate(22deg);
-      }
-      .cart-icon::after {
-        content: "";
-        position: absolute;
-        left: 2mm;
-        right: 2mm;
-        bottom: -5mm;
-        height: 4mm;
-        border-left: 3px solid #111111;
-        border-right: 3px solid #111111;
-      }
-      .brand-mark strong {
-        display: block;
-        font-size: 15px;
-        line-height: 1;
-      }
-      .brand-mark small {
-        display: block;
-        font-size: 5.8px;
-        line-height: 1.15;
-      }
-      h2 {
-        margin: 5mm 0 3.5mm;
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 3mm;
+        margin: 3.5mm 0 2.7mm;
+        color: #080d27;
         font-size: 17px;
-        line-height: 1;
+        font-weight: 800;
+      }
+      .section-title::after {
+        content: "";
+        height: 1px;
+        background: #f8ad00;
+        flex: 1;
+      }
+      .section-icon {
+        width: 8mm;
+        height: 8mm;
+        border-radius: 1mm;
+        background: #080d27;
+        display: inline-grid;
+        place-items: center;
+        position: relative;
+        flex: 0 0 auto;
+        color: #f8ad00;
+      }
+      .icon-svg {
+        display: block;
+        width: 62%;
+        height: 62%;
+        margin: auto;
       }
       table {
         width: 100%;
@@ -463,38 +578,41 @@ const buildInvoiceHtml = (order, options = {}) => {
       .items th,
       .items td,
       .totals td {
-        border: 1px solid #111111;
+        border: 1px solid #d8d8d8;
       }
       .details td {
-        height: 9.5mm;
-        padding: 2.2mm;
-        font-size: 13px;
+        height: 10.2mm;
+        padding: 2.1mm 2.4mm;
+        font-size: 12.5px;
         line-height: 1.25;
         overflow-wrap: anywhere;
         vertical-align: middle;
       }
       .details .label {
-        width: 24%;
+        width: 18.5%;
         font-weight: 700;
         white-space: nowrap;
       }
       .details .value {
-        width: 26%;
+        width: 31.5%;
         white-space: normal;
       }
       .items th {
-        height: 14.5mm;
+        height: 9.2mm;
         padding: 2mm 1.5mm;
-        font-size: 13px;
+        background: #080d27;
+        color: #ffffff;
+        font-size: 12.5px;
         line-height: 1.15;
         text-align: center;
         vertical-align: middle;
         font-weight: 700;
       }
       .items td {
-        min-height: 11mm;
+        height: 8.1mm;
         padding: 2mm 1.5mm;
-        font-size: 13px;
+        color: #222222;
+        font-size: 11.5px;
         line-height: 1.25;
         text-align: center;
         vertical-align: middle;
@@ -505,39 +623,107 @@ const buildInvoiceHtml = (order, options = {}) => {
         word-break: break-word;
       }
       .items .empty-row td {
-        height: 10mm;
+        height: 8.1mm;
       }
       .totals-wrap {
-        width: 42%;
+        width: 45%;
         margin-left: auto;
       }
       .totals td {
-        height: 9.5mm;
-        padding: 2mm 2.2mm;
-        font-size: 13px;
+        height: 8.9mm;
+        padding: 2mm 3mm;
+        color: #2c2c2c;
+        font-size: 12.5px;
         line-height: 1.25;
       }
       .totals .total-label {
-        width: 50%;
+        width: 52%;
       }
       .totals .amount {
-        width: 50%;
+        width: 48%;
         text-align: right;
       }
       .totals .cod td {
+        background: #fff0cf;
+        color: #080d27;
         font-weight: 700;
       }
-      .footer-note {
+      .notes-box {
         position: absolute;
-        left: 12mm;
-        right: 12mm;
-        bottom: 8mm;
-        border-top: 1px solid #999999;
-        padding-top: 3mm;
-        color: #666666;
+        left: 8.5mm;
+        right: 8.5mm;
+        bottom: 36mm;
+        min-height: 27mm;
+        border: 1px solid #cfcfcf;
+        border-radius: 3.5mm;
+        padding: 5mm 6mm 4.5mm 16mm;
+        color: #252a3a;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .notes-box h2 {
+        margin: 0 0 1.5mm;
+        font-size: 14px;
+        line-height: 1.2;
+      }
+      .notes-icon {
+        position: absolute;
+        left: 5mm;
+        top: 5mm;
+        width: 9mm;
+        height: 9mm;
+        border-radius: 50%;
+        background: #f8ad00;
+        color: #ffffff;
+        display: grid;
+        place-items: center;
+      }
+      .footer-note {
+        margin: 0;
+      }
+      .contact-row {
+        position: absolute;
+        left: 8.5mm;
+        right: 8.5mm;
+        bottom: 12mm;
+        border-top: 1px solid #f8ad00;
+        padding-top: 4mm;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+        color: #080d27;
+      }
+      .contact-item {
+        min-height: 10mm;
+        display: grid;
+        grid-template-columns: 8mm 1fr;
+        gap: 3mm;
+        align-items: center;
+        padding: 0 4mm;
+        border-right: 1px solid #d0d0d0;
+      }
+      .contact-item:first-child {
+        padding-left: 0;
+      }
+      .contact-item:last-child {
+        border-right: 0;
+        padding-right: 0;
+      }
+      .contact-label {
+        display: block;
+        font-size: 8.3px;
+        font-weight: 700;
+        margin-bottom: 0.5mm;
+      }
+      .contact-value {
+        display: block;
+        color: #1f2937;
         font-size: 8px;
-        line-height: 1.25;
-        text-align: center;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+      .content {
+        padding-bottom: 70mm;
       }
       @media screen {
         body {
@@ -556,100 +742,125 @@ const buildInvoiceHtml = (order, options = {}) => {
   </head>
   <body>
     <main class="invoice-sheet">
-      <section class="header">
-        <div class="header-left">
-          <div class="placeholder" aria-hidden="true"><span></span></div>
-          <div class="header-copy">
-            <h1>Seller Center</h1>
-            <p>Purchase Summary ${scopeLabel}</p>
-            <p>${escapeHtml(sellerName)}</p>
-          </div>
+      <div class="top-band" aria-hidden="true"></div>
+      <div class="bottom-band" aria-hidden="true"></div>
+
+      <section class="header" aria-label="Invoice header">
+        <div class="brand-logo">
+          ${logoMarkup}
         </div>
-        <div class="brand-mark">
-          <div>
-            ${logoMarkup}
+        <div class="seller-panel">
+          <div class="seller-logo">
+            ${sellerLogoMarkup}
           </div>
+          <div class="seller-name"><span class="seller-avatar">${iconSvg("user")}</span>${escapeHtml(sellerName)} ${scopeLabel}</div>
         </div>
       </section>
 
-      <h2>Order Details:</h2>
-      <table class="details">
-        <tbody>
-          <tr>
-            <td class="label">Order No:</td>
-            <td class="value">${escapeHtml(getOrderNumber(order))}</td>
-            <td class="label">Order Date:</td>
-            <td class="value">${escapeHtml(formatDate(order?.createdAt))}</td>
-          </tr>
-          <tr>
-            <td class="label">Name:</td>
-            <td class="value">${escapeHtml(customerName)}</td>
-            <td class="label">Paid By:</td>
-            <td class="value">${escapeHtml(order?.paymentMethod || "Cash on Delivery")}</td>
-          </tr>
-          <tr>
-            <td class="label">Email:</td>
-            <td class="value">${escapeHtml(customerEmail)}</td>
-            <td class="label">Phone:</td>
-            <td class="value">${escapeHtml(customerPhone)}</td>
-          </tr>
-          <tr>
-            <td class="label">Delivery Address:</td>
-            <td class="value" colspan="3">${escapeHtml(formatAddress(order?.shippingAddress))}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h2>Order Items:</h2>
-        <table>
-        <thead class="items">
-          <tr>
-            <th style="width: 4%;">#</th>
-            <th style="width: 30%;">Product Name</th>
-            <th style="width: 18%;">SKU</th>
-            <th style="width: 10%;">Varient</th>
-            <th style="width: 9%;">Price</th>
-            <th style="width: 7%;">QTY</th>
-            <th style="width: 12%;">Item Total</th>
-            <th style="width: 10%;">Paid<br />Price</th>
-          </tr>
-        </thead>
-        <tbody class="items">
-          ${rows || '<tr class="empty-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'}
-        </tbody>
-        </table>
-
-      <div class="totals-wrap">
-        <table class="totals">
+      <div class="content">
+        <div class="section-title"><span class="section-icon">${iconSvg("clipboard")}</span><span>Order Details</span></div>
+        <table class="details">
           <tbody>
             <tr>
-              <td class="total-label">Sub Total:</td>
-              <td class="amount">${formatMoney(subtotal)}</td>
+              <td class="label">Order No:</td>
+              <td class="value">${escapeHtml(getOrderNumber(order))}</td>
+              <td class="label">Order Date:</td>
+              <td class="value">${escapeHtml(formatDate(order?.createdAt))}</td>
             </tr>
             <tr>
-              <td>Shipping Cost:</td>
-              <td class="amount">${formatMoney(shippingFee)}</td>
+              <td class="label">Name:</td>
+              <td class="value">${escapeHtml(customerName)}</td>
+              <td class="label">Paid By:</td>
+              <td class="value">${escapeHtml(order?.paymentMethod || "Cash on Delivery")}</td>
             </tr>
             <tr>
-              <td>Discount:</td>
-              <td class="amount">${formatMoney(discount)}</td>
+              <td class="label">Email:</td>
+              <td class="value">${escapeHtml(customerEmail)}</td>
+              <td class="label">Phone:</td>
+              <td class="value">${escapeHtml(customerPhone)}</td>
             </tr>
             <tr>
-              <td>Advance</td>
-              <td class="amount">${formatMoney(advance)}</td>
-            </tr>
-            <tr class="cod">
-              <td>Cash On Delivery</td>
-              <td class="amount">${formatMoney(codAmount)}</td>
+              <td class="label">Delivery Address:</td>
+              <td class="value" colspan="3">${escapeHtml(formatAddress(order?.shippingAddress))}</td>
             </tr>
           </tbody>
         </table>
+
+        <div class="section-title"><span class="section-icon">${iconSvg("cart")}</span><span>Order Items</span></div>
+        <table>
+          <thead class="items">
+            <tr>
+              <th style="width: 4.8%;">#</th>
+              <th style="width: 25.2%;">Product Name</th>
+              <th style="width: 11.5%;">SKU</th>
+              <th style="width: 13.2%;">Variant</th>
+              <th style="width: 11.8%;">Price</th>
+              <th style="width: 8.8%;">QTY</th>
+              <th style="width: 12.8%;">Item Total</th>
+              <th style="width: 11.9%;">Paid Price</th>
+            </tr>
+          </thead>
+          <tbody class="items">
+            ${rows}${blankRows}
+          </tbody>
+        </table>
+
+        <div class="totals-wrap">
+          <table class="totals">
+            <tbody>
+              <tr>
+                <td class="total-label">Sub Total:</td>
+                <td class="amount">${formatMoney(subtotal)}</td>
+              </tr>
+              <tr>
+                <td>Shipping Cost:</td>
+                <td class="amount">${formatMoney(shippingFee)}</td>
+              </tr>
+              <tr>
+                <td>Discount:</td>
+                <td class="amount">${formatMoney(discount)}</td>
+              </tr>
+              <tr>
+                <td>Advance</td>
+                <td class="amount">${formatMoney(advance)}</td>
+              </tr>
+              <tr class="cod">
+                <td>Cash On Delivery</td>
+                <td class="amount">${formatMoney(codAmount)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <p class="footer-note">
-        Please check the product quantity, model, and type during delivery. Do not open the main seal/package before receiving.
-        Unboxing video is required for any missing, wrong, or damaged product claim. After delivery, all issues will be handled as per CartOut policy.
-      </p>
+      <section class="notes-box">
+        <span class="notes-icon">${iconSvg("fileText")}</span>
+        <h2>Customer Notes</h2>
+        <p class="footer-note">
+          Please check the product quantity, model, and type during delivery. Do not open the main seal/package before receiving.
+          For any missing, wrong, or damaged product claim, the unboxing video must be recorded in front of the delivery rider
+          while opening the package. After delivery, all issues will be handled as per CartOut policy.
+        </p>
+      </section>
+
+      <section class="contact-row" aria-label="CartOut contact information">
+        <div class="contact-item">
+          <span class="contact-icon">${iconSvg("mail")}</span>
+          <span><strong class="contact-label">CartOut Support Email</strong><span class="contact-value">${escapeHtml(footerContact.email)}</span></span>
+        </div>
+        <div class="contact-item">
+          <span class="contact-icon">${iconSvg("phone")}</span>
+          <span><strong class="contact-label">CartOut Phone Number</strong><span class="contact-value">${escapeHtml(footerContact.phone)}</span></span>
+        </div>
+        <div class="contact-item">
+          <span class="contact-icon">${iconSvg("globe")}</span>
+          <span><strong class="contact-label">Website</strong><span class="contact-value">${escapeHtml(footerContact.website)}</span></span>
+        </div>
+        <div class="contact-item">
+          <span class="contact-icon">${iconSvg("facebook")}</span>
+          <span><strong class="contact-label">Facebook</strong><span class="contact-value">${escapeHtml(footerContact.facebook)}</span></span>
+        </div>
+      </section>
     </main>
   </body>
 </html>`;
