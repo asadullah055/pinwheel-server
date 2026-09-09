@@ -8,6 +8,7 @@ const {
   getAllProducts,
   updatePriceAndStock,
   updateStatus,
+  getProductImageUploadSignature,
   getPublicProducts,
   getProductBySlug,
 } = require("../controller/productController");
@@ -18,12 +19,13 @@ const router = express.Router();
 // Route to get all products
 router.get("/getAllProducts", protect, getAllProducts);   
 router.get("/publicProducts",  getPublicProducts);   
-router.get("/:id", getProductById); 
+router.post("/image-signature", protect, getProductImageUploadSignature);
 router.post("/create", protect, createProduct); 
 router.put("/updatePrice", protect, updatePriceAndStock); 
 router.put("/updateStatus/:id", protect, updateStatus); 
+router.get("/slug/:slug", getProductBySlug);  
+router.get("/:id", getProductById); 
 router.put("/:id", protect, updateProduct); 
 router.delete("/:id", protect, adminOnly, deleteProduct);  
-router.get("/slug/:slug", getProductBySlug);  
 
 module.exports = router;

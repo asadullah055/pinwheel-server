@@ -10,10 +10,25 @@ cloudinary.config({
   secure: true,
 });
 
-uploadToCloudinary = async (path, folder)=>{
+const uploadToCloudinary = async (path, folder)=>{
     const result = await cloudinary.uploader.upload(path, {folder, resource_type: "auto"})
     return result
 }
+
+const getCloudinaryUploadSignature = (folder) => {
+  const timestamp = Math.round(Date.now() / 1000);
+  const params = { folder, timestamp };
+  const signature = cloudinary.utils.api_sign_request(params, cloudApiSecret);
+
+  return {
+    cloudName,
+    apiKey: cloudApiKey,
+    folder,
+    timestamp,
+    signature,
+  };
+};
+
 const deleteFromCloudinary = async (imageUrl) => {
   try {
     const publicId = imageUrl.split("/").slice(-2).join("/").split(".")[0];
@@ -22,4 +37,4 @@ const deleteFromCloudinary = async (imageUrl) => {
     console.error("Cloudinary delete error:", error);
   }
 }
-module.exports = {uploadToCloudinary,deleteFromCloudinary}
+module.exports = { uploadToCloudinary, deleteFromCloudinary, getCloudinaryUploadSignature }

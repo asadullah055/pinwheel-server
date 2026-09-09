@@ -3,7 +3,10 @@ const createError = require("http-errors");
 const { successMessage } = require("../utils/response");
 const Product = require("../model/Product");
 const formidable = require("formidable");
-const { uploadToCloudinary } = require("../helper/cloudinary");
+const {
+  uploadToCloudinary,
+  getCloudinaryUploadSignature,
+} = require("../helper/cloudinary");
 const {
   generateUniqueSKU,
   generateVariantSKUs,
@@ -132,6 +135,16 @@ const normalizeDiscountFields = (variant, index) => {
   variant.discountEndDate = endDate;
 };
 
+const getProductImageUploadSignature = async (req, res, next) => {
+  try {
+    return successMessage(res, 200, {
+      upload: getCloudinaryUploadSignature("products"),
+    });
+  } catch (error) {
+    next(createError(500, "Failed to prepare image upload"));
+  }
+};
+
 /* const createProduct = async (req, res, next) => {
   const form = formidable({ multiples: true });
 
@@ -161,6 +174,7 @@ const normalizeDiscountFields = (variant, index) => {
         seoContent,
         attributes,
         variants,
+        existingImages,
       } = fields;
 
       // Trim strings
@@ -302,7 +316,7 @@ if (variants) {
         return next(createError(400, "Product with this name already exists"));
 
       // Handle image upload
-      let imageUrls = [];
+      let imageUrls = parseExistingImages(existingImages, []);
       if (files.images) {
         const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
         const images = Array.isArray(files.images) ? files.images : [files.images];
@@ -312,12 +326,14 @@ if (variants) {
             return next(createError(400, `${img.originalFilename}: Invalid image type`));
         }
 
-        imageUrls = await Promise.all(
+        const uploadedImageUrls = await Promise.all(
           images.map(async (img) => {
             const result = await uploadToCloudinary(img.filepath, "products");
             return result.url;
           })
         );
+
+        imageUrls = [...imageUrls, ...uploadedImageUrls];
       }
 
       // Generate main SKU
@@ -1528,5 +1544,6 @@ module.exports = {
   updatePriceAndStock,
   getPublicProducts,
   updateStatus,
-  getProductBySlug
+  getProductBySlug,
+  getProductImageUploadSignature
 };
