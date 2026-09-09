@@ -519,12 +519,26 @@ const getOrderById = async (req, res, next) => {
   }
 };
 
+const getDocumentId = (value) => {
+  if (!value) return null;
+
+  if (value._id) return value._id.toString();
+  if (value.$oid) return value.$oid.toString();
+
+  return value.toString();
+};
+
 const buildQuantityMap = (items) => {
   const qtyMap = new Map();
 
   for (const item of items) {
-    const productId = item.product.toString();
-    const variantId = item.variant ? item.variant.toString() : null;
+    const productId = getDocumentId(item.product);
+    const variantId = getDocumentId(item.variant);
+
+    if (!productId) {
+      throw createError(400, "Order item product information is missing");
+    }
+
     const key = `${productId}:${variantId || "legacy"}`;
     const qty = Number(item.quantity || 0);
     const current = qtyMap.get(key);
