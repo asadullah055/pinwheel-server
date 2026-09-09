@@ -61,6 +61,7 @@ const getInvoiceBrowserLaunchOptions = async () => {
       executablePath,
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      timeout: Number(process.env.INVOICE_BROWSER_TIMEOUT_MS || 15000),
     };
   }
 
@@ -70,6 +71,7 @@ const getInvoiceBrowserLaunchOptions = async () => {
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: "shell",
+      timeout: Number(process.env.INVOICE_BROWSER_TIMEOUT_MS || 15000),
     };
   }
 
@@ -77,6 +79,7 @@ const getInvoiceBrowserLaunchOptions = async () => {
     channel: "chrome",
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    timeout: Number(process.env.INVOICE_BROWSER_TIMEOUT_MS || 15000),
   };
 };
 
@@ -254,15 +257,18 @@ const formatAddress = (address) => {
 const getInvoiceLogoUrl = () =>
   process.env.INVOICE_LOGO_URL ||
   process.env.CARTOUT_LOGO_URL ||
-  "https://www.cartout.com.bd/images/darklogo.png";
+  "https://www.cartout.com.bd/images/mainlogo.png";
 
 const getLogoDataUri = () => {
   if (cachedLogoDataUri !== null) return cachedLogoDataUri;
 
   const logoPaths = [
     process.env.INVOICE_LOGO_PATH,
-    path.resolve(__dirname, "../../../cartout/public/images/darklogo.png"),
+    path.resolve(__dirname, "../assets/mainlogo.png"),
     path.resolve(__dirname, "../../../cartout/public/images/mainlogo.png"),
+    path.resolve(__dirname, "../assets/darklogo.png"),
+    path.resolve(__dirname, "../../../cartout/public/images/darklogo.png"),
+    path.resolve(__dirname, "../../../public/images/mainlogo.png"),
     path.resolve(__dirname, "../../../public/images/darklogo.png"),
     path.resolve(__dirname, "../../../dashboard/public/image/mainlogo.png"),
     path.resolve(__dirname, "../../../cartout/public/images/cartout2.png"),
@@ -284,6 +290,36 @@ const getLogoDataUri = () => {
 
   cachedLogoDataUri = "";
   return cachedLogoDataUri;
+};
+
+const waitForInvoiceAssets = async (page) => {
+  const timeoutMs = Number(process.env.INVOICE_ASSET_WAIT_MS || 1200);
+
+  await page.evaluate(async (timeout) => {
+    const imagePromises = Array.from(document.images).map((image) => {
+      if (image.complete) return undefined;
+      if (typeof image.decode === "function") {
+        return image.decode().catch(() => undefined);
+      }
+
+      return new Promise((resolve) => {
+        image.onload = resolve;
+        image.onerror = resolve;
+      });
+    });
+
+    await Promise.race([
+      Promise.all(imagePromises),
+      new Promise((resolve) => setTimeout(resolve, timeout)),
+    ]);
+
+    if (document.fonts?.ready) {
+      await Promise.race([
+        document.fonts.ready.catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, timeout)),
+      ]);
+    }
+  }, timeoutMs);
 };
 
 const getSellerLogoSrc = (order) => {
@@ -455,18 +491,15 @@ const buildInvoiceHtml = (order, options = {}) => {
       .brand-logo {
         width: 123mm;
         height: 39mm;
-        padding: 3mm 4mm;
-        border-radius: 2mm;
-        background: #080d27;
         position: relative;
         overflow: hidden;
       }
       .brand-logo img {
         display: block;
-        width: 112mm;
+        width: 105mm;
         height: auto;
         position: absolute;
-        left: 4mm;
+        left: 0;
         top: 50%;
         transform: translateY(-50%);
       }
@@ -883,8 +916,10 @@ const buildInvoicePdf = async (order, options = {}) => {
   try {
     const page = await browser.newPage();
     await page.setContent(buildInvoiceHtml(order, options), {
-      waitUntil: "networkidle0",
+      waitUntil: "domcontentloaded",
+      timeout: Number(process.env.INVOICE_PAGE_TIMEOUT_MS || 8000),
     });
+    await waitForInvoiceAssets(page);
     await page.emulateMediaType("screen");
 
     const pdfBuffer = await page.pdf({
