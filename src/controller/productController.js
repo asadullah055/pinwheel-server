@@ -64,13 +64,18 @@ const parseExistingImages = (value, fallback = []) => {
     try {
       const parsed = JSON.parse(item);
       const parsedImages = Array.isArray(parsed) ? parsed : [parsed];
-      images.push(...parsedImages.filter((image) => typeof image === "string"));
+      images.push(
+        ...parsedImages
+          .filter((image) => typeof image === "string")
+          .map((image) => image.trim())
+          .filter(Boolean)
+      );
     } catch {
       if (typeof item === "string" && item.trim()) images.push(item.trim());
     }
   }
 
-  return images;
+  return [...new Set(images)];
 };
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -414,6 +419,7 @@ const createProduct = async (req, res, next) => {
         seoContent,
         attributes,
         variants,
+        existingImages,
       } = fields;
 
       // Trim strings
@@ -572,7 +578,7 @@ const createProduct = async (req, res, next) => {
       parsedVariants = await generateVariantSKUs(parsedVariants);
 
       // Handle image upload
-      let imageUrls = [];
+      let imageUrls = parseExistingImages(existingImages, []);
       if (files.images) {
         const allowedTypes = [
           "image/jpeg",
