@@ -233,6 +233,10 @@ const getPaidUnitPrice = (item) => {
 const formatAddress = (address) => {
   if (!address) return "Address not available";
 
+  if (address.fullAddress) {
+    return String(address.fullAddress).trim();
+  }
+
   const parts =
     address.division || address.district || address.upazila || address.area
       ? [

@@ -4,6 +4,18 @@ const Category = require("../model/Category");
 const { successMessage } = require("../utils/response");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
+const normalizeOptionalMetaData = (document) => {
+  const metaData = document.metaData;
+  if (!metaData) return;
+
+  const seoTitle = String(metaData.seoTitle || "").trim();
+  const seoContent = String(metaData.seoContent || "").trim();
+
+  if (!seoTitle && !seoContent) {
+    document.set("metaData", undefined);
+  }
+};
+
 const createCategory = async (req, res, next) => {
   const form = formidable();
   form.parse(req, async (err, fields, files) => {
@@ -159,6 +171,7 @@ const updateCategory = async (req, res, next) => {
       category.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
       if (fieldStatus) category.status = fieldStatus;
       category.creator = req.id;
+      normalizeOptionalMetaData(category);
       await category.save();
 
       return successMessage(res, 200, {

@@ -13,7 +13,7 @@ const BrandSchema = new mongoose.Schema(
     },
     metaData: {
       type: MetaDataSchema,
-      default: {},
+      default: undefined,
     },
   },
   { timestamps: true, versionKey: false }

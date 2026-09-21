@@ -9,7 +9,7 @@ const CategorySchema = new mongoose.Schema(
     slug: { type: String, default: "" },
     metaData: {
       type: MetaDataSchema,
-      default: {},
+      default: undefined,
     },
     status: {
       type: String,

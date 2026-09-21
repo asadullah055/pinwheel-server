@@ -4,6 +4,18 @@ const createError = require("http-errors");
 const { successMessage } = require("../utils/response");
 const { uploadToCloudinary } = require("../helper/cloudinary");
 
+const normalizeOptionalMetaData = (document) => {
+  const metaData = document.metaData;
+  if (!metaData) return;
+
+  const seoTitle = String(metaData.seoTitle || "").trim();
+  const seoContent = String(metaData.seoContent || "").trim();
+
+  if (!seoTitle && !seoContent) {
+    document.set("metaData", undefined);
+  }
+};
+
 const createBrand = async (req, res, next) => {
   const form = formidable();
 
@@ -165,6 +177,7 @@ const updateBrand = async (req, res, next) => {
       brand.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
       if (fieldStatus) brand.status = fieldStatus;
       brand.creator = req.id;
+      normalizeOptionalMetaData(brand);
       await brand.save();
 
       return successMessage(res, 200, {

@@ -377,7 +377,7 @@ if (variants) {
       const populated = await Product.findById(savedProduct._id)
         .populate("category", "name")
         .populate("brand", "name")
-        .populate("creator", "name email");
+        .populate("creator", "name email shopName");
 
       return successMessage(res, 201, {
         message: "Product created successfully",
@@ -646,7 +646,7 @@ const createProduct = async (req, res, next) => {
       const populated = await Product.findById(savedProduct._id)
         .populate("category", "name")
         .populate("brand", "name")
-        .populate("creator", "name email");
+        .populate("creator", "name email shopName");
 
       return successMessage(res, 201, {
         message: "Product created successfully",
@@ -695,7 +695,7 @@ const getAllProducts = async (req, res, next) => {
     const products = await Product.find(filter)
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email")
+      .populate("creator", "name email shopName")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -734,7 +734,7 @@ const getPublicProducts = async (req, res, next) => {
     const products = await Product.find(filter)
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email")
+      .populate("creator", "name email shopName")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -766,7 +766,7 @@ const getProductById = async (req, res, next) => {
     const product = await Product.findById(id)
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email");
+      .populate("creator", "name email shopName");
     if (!product) {
       return next(createError(404, "Product not found"));
     }
@@ -989,7 +989,7 @@ const getProductById = async (req, res, next) => {
       const populated = await Product.findById(saved._id)
         .populate("category", "name")
         .populate("brand", "name")
-        .populate("creator", "name email");
+        .populate("creator", "name email shopName");
 
       return successMessage(res, 200, {
         message: "Product updated successfully",
@@ -1281,7 +1281,7 @@ const updateProduct = async (req, res, next) => {
       const populated = await Product.findById(saved._id)
         .populate("category", "name")
         .populate("brand", "name")
-        .populate("creator", "name email");
+        .populate("creator", "name email shopName");
 
       return successMessage(res, 200, {
         message: "Product updated successfully",
@@ -1350,7 +1350,7 @@ const getProductsByCategory = async (req, res, next) => {
     const products = await Product.find({ category: categoryId })
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email");
+      .populate("creator", "name email shopName");
     if (!products || products.length === 0) {
       return next(createError(404, "No products found for this category"));
     }
@@ -1370,7 +1370,7 @@ const getProductsByBrand = async (req, res, next) => {
 
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email");
+      .populate("creator", "name email shopName");
     if (!products || products.length === 0) {
       return next(createError(404, "No products found for this brand"));
     }
@@ -1389,7 +1389,7 @@ const getProductsByCreator = async (req, res, next) => {
     const products = await Product.find({ creator: creatorId })
       .populate("category", "name")
       .populate("brand", "name")
-      .populate("creator", "name email");
+      .populate("creator", "name email shopName");
     if (!products || products.length === 0) {
       return next(createError(404, "No products found for this creator"));
     }

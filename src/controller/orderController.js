@@ -6,8 +6,31 @@ const { buildInvoiceEmailHtml, buildInvoicePdf } = require("../utils/invoice");
 const { successMessage } = require("../utils/response");
 const { sendEmail } = require("../utils/sendEmail");
 
-const requiredAddressFields = ["street", "city", "state", "postalCode", "country"];
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const toTrimmedString = (value) =>
+  value === undefined || value === null ? "" : String(value).trim();
+
+const firstFilled = (...values) =>
+  values.map(toTrimmedString).find((value) => value.length > 0) || "";
+
+const normalizeShippingAddress = (shippingAddress) => {
+  const fullAddress = firstFilled(
+    shippingAddress.fullAddress,
+    shippingAddress.street,
+    shippingAddress.addressLine,
+    shippingAddress.displayAddress,
+    shippingAddress.address
+  );
+
+  if (!fullAddress) {
+    throw createError(400, "Shipping address is required");
+  }
+
+  return {
+    fullAddress,
+  };
+};
 
 const ORDER_STATUSES = [
   "Pending",
@@ -36,12 +59,7 @@ const createOrder = async (req, res, next) => {
       throw createError(400, "Shipping address is required");
     }
 
-    for (const field of requiredAddressFields) {
-      const value = shippingAddress[field];
-      if (!value || typeof value !== "string" || !value.trim()) {
-        throw createError(400, `Shipping address ${field} is required`);
-      }
-    }
+    const normalizedShippingAddress = normalizeShippingAddress(shippingAddress);
 
     if (!paymentMethod) {
       throw createError(400, "Payment method is required");
@@ -187,25 +205,7 @@ const createOrder = async (req, res, next) => {
       shippingFee: parsedShippingFee,
       payableAmount,
       stockAdjusted: true,
-      shippingAddress: {
-        street: shippingAddress.street.trim(),
-        city: shippingAddress.city.trim(),
-        state: shippingAddress.state.trim(),
-        postalCode: shippingAddress.postalCode.trim(),
-        country: shippingAddress.country.trim(),
-        division: shippingAddress.division
-          ? String(shippingAddress.division).trim()
-          : shippingAddress.state.trim(),
-        district: shippingAddress.district
-          ? String(shippingAddress.district).trim()
-          : shippingAddress.city.trim(),
-        upazila: shippingAddress.upazila
-          ? String(shippingAddress.upazila).trim()
-          : undefined,
-        area: shippingAddress.area
-          ? String(shippingAddress.area).trim()
-          : shippingAddress.postalCode.trim(),
-      },
+      shippingAddress: normalizedShippingAddress,
       paymentMethod,
     };
 
@@ -238,7 +238,7 @@ const createOrder = async (req, res, next) => {
     const populatedOrder = await findPopulatedOrderById(order._id, {
       includeInvoiceToken: true,
     });
-    await sendOrderInvoiceEmail(populatedOrder);
+    queueOrderInvoiceEmail(populatedOrder);
 
     return successMessage(res, 201, {
       message: "Order placed successfully",
@@ -517,6 +517,21 @@ const getOrderById = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+const queueOrderInvoiceEmail = (order) => {
+  const run = () => {
+    sendOrderInvoiceEmail(order).catch((error) => {
+      console.log("failed to queue invoice email", error);
+    });
+  };
+
+  if (typeof setImmediate === "function") {
+    setImmediate(run);
+    return;
+  }
+
+  setTimeout(run, 0);
 };
 
 const getDocumentId = (value) => {
