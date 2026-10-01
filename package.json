@@ -10,7 +10,7 @@
   "license": "ISC",
   "description": "",
   "engines": {
-    "node": ">=20.11.0"
+    "node": "24.x"
   },
   "dependencies": {
     "@sparticuz/chromium": "^138.0.2",
