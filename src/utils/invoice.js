@@ -4,6 +4,7 @@ const chromium = require("@sparticuz/chromium");
 const puppeteer = require("puppeteer-core");
 
 let cachedLogoDataUri = null;
+let serverlessChromiumPathPromise = null;
 
 const CHROME_ENV_KEYS = [
   "PUPPETEER_EXECUTABLE_PATH",
@@ -53,6 +54,20 @@ const isServerlessRuntime = () =>
       process.env.AWS_EXECUTION_ENV
   );
 
+const getServerlessChromiumExecutablePath = () => {
+  if (!serverlessChromiumPathPromise) {
+    // executablePath() extracts Chromium into /tmp on a cold start. Sharing
+    // the promise prevents a concurrent invoice request from trying to spawn
+    // the binary while the first extraction is still writing it.
+    serverlessChromiumPathPromise = chromium.executablePath().catch((error) => {
+      serverlessChromiumPathPromise = null;
+      throw error;
+    });
+  }
+
+  return serverlessChromiumPathPromise;
+};
+
 const getInvoiceBrowserLaunchOptions = async () => {
   const executablePath = getEnvChromeExecutablePath() || getLocalChromeExecutablePath();
 
@@ -69,7 +84,7 @@ const getInvoiceBrowserLaunchOptions = async () => {
     return {
       args: puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
+      executablePath: await getServerlessChromiumExecutablePath(),
       headless: "shell",
       timeout: Number(process.env.INVOICE_BROWSER_TIMEOUT_MS || 15000),
     };
@@ -81,6 +96,36 @@ const getInvoiceBrowserLaunchOptions = async () => {
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
     timeout: Number(process.env.INVOICE_BROWSER_TIMEOUT_MS || 15000),
   };
+};
+
+const isExecutableBusyError = (error) =>
+  error?.code === "ETXTBSY" ||
+  error?.cause?.code === "ETXTBSY" ||
+  /(?:spawn\s+)?ETXTBSY/i.test(error?.message || "");
+
+const launchInvoiceBrowser = async () => {
+  const launchOptions = await getInvoiceBrowserLaunchOptions();
+  const configuredAttempts = Number(process.env.INVOICE_BROWSER_LAUNCH_ATTEMPTS);
+  const maxAttempts =
+    Number.isInteger(configuredAttempts) && configuredAttempts > 0
+      ? configuredAttempts
+      : 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await puppeteer.launch(launchOptions);
+    } catch (error) {
+      if (!isExecutableBusyError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, 250 * 2 ** (attempt - 1))
+      );
+    }
+  }
+
+  throw new Error("Failed to launch the invoice browser");
 };
 
 const formatMoney = (value) => {
@@ -359,6 +404,100 @@ const buildInvoiceEmailHtml = (order) => {
   `;
 };
 
+const buildSellerOrderEmailHtml = (order, seller, sellerItems = []) => {
+  const sellerName = seller?.shopName || seller?.name || "Seller";
+  const customerName = order?.customer?.name || order?.user?.name || "Customer";
+  const customerPhone = order?.customer?.phone || "N/A";
+  const sellerSubtotal = sellerItems.reduce(
+    (total, item) =>
+      total + Number(getPaidUnitPrice(item) || 0) * Number(item?.quantity || 0),
+    0
+  );
+  const dashboardBaseUrl = (
+    process.env.SELLER_DASHBOARD_URL || "https://pinwheel-dash.vercel.app"
+  ).replace(/\/$/, "");
+  const orderUrl = `${dashboardBaseUrl}/order/details/${order?._id || ""}`;
+  const itemRows = sellerItems
+    .map((item) => {
+      const quantity = Number(item?.quantity || 0);
+      const unitPrice = Number(getPaidUnitPrice(item) || 0);
+
+      return `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${escapeHtml(
+            getProductName(item)
+          )}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${escapeHtml(
+            formatVariantAttributes(item?.attributes)
+          )}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${escapeHtml(
+            getInvoiceSku(item)
+          )}</td>
+          <td style="padding: 10px; text-align: center; border-bottom: 1px solid #e5e7eb;">${quantity}</td>
+          <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e5e7eb;">BDT ${escapeHtml(
+            formatMoney(unitPrice)
+          )}</td>
+          <td style="padding: 10px; text-align: right; border-bottom: 1px solid #e5e7eb;">BDT ${escapeHtml(
+            formatMoney(unitPrice * quantity)
+          )}</td>
+        </tr>`;
+    })
+    .join("");
+
+  return `
+    <div style="max-width: 760px; margin: 0 auto; padding: 24px; font-family: Arial, sans-serif; color: #111827;">
+      <div style="padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="margin: 0 0 8px; color: #ff3300;">You received a new order</h2>
+        <p style="margin: 0 0 20px; color: #4b5563;">Hello ${escapeHtml(
+          sellerName
+        )}, a customer has ordered products from your shop.</p>
+
+        <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
+          <tr><td style="padding: 4px 0; color: #6b7280;">Order</td><td style="padding: 4px 0; text-align: right; font-weight: 700;">${escapeHtml(
+            getOrderNumber(order)
+          )}</td></tr>
+          <tr><td style="padding: 4px 0; color: #6b7280;">Customer</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(
+            customerName
+          )}</td></tr>
+          <tr><td style="padding: 4px 0; color: #6b7280;">Phone</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(
+            customerPhone
+          )}</td></tr>
+          <tr><td style="padding: 4px 0; color: #6b7280;">Delivery address</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(
+            formatAddress(order?.shippingAddress)
+          )}</td></tr>
+          <tr><td style="padding: 4px 0; color: #6b7280;">Payment</td><td style="padding: 4px 0; text-align: right;">${escapeHtml(
+            order?.paymentMethod || "N/A"
+          )}</td></tr>
+        </table>
+
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="background: #f9fafb;">
+                <th style="padding: 10px; text-align: left;">Product</th>
+                <th style="padding: 10px; text-align: left;">Variant</th>
+                <th style="padding: 10px; text-align: left;">SKU</th>
+                <th style="padding: 10px; text-align: center;">Qty</th>
+                <th style="padding: 10px; text-align: right;">Price</th>
+                <th style="padding: 10px; text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>${itemRows}</tbody>
+          </table>
+        </div>
+
+        <p style="margin: 20px 0; text-align: right; font-size: 16px;"><strong>Your subtotal: BDT ${escapeHtml(
+          formatMoney(sellerSubtotal)
+        )}</strong></p>
+        <p style="margin: 24px 0 0; text-align: center;">
+          <a href="${escapeHtml(
+            orderUrl
+          )}" style="display: inline-block; padding: 12px 22px; border-radius: 8px; background: #ff3300; color: #ffffff; text-decoration: none; font-weight: 700;">View order</a>
+        </p>
+      </div>
+    </div>`;
+};
+
 const buildInvoiceHtml = (order, options = {}) => {
   const customerName = order?.customer?.name || order?.user?.name || "Customer";
   const customerEmail = order?.customer?.email || order?.user?.email || "N/A";
@@ -404,12 +543,6 @@ const buildInvoiceHtml = (order, options = {}) => {
         </tr>
       `;
     })
-    .join("");
-  const blankRows = Array.from({ length: Math.max(0, 4 - items.length) })
-    .map(
-      () =>
-        '<tr class="empty-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'
-    )
     .join("");
 
   return `<!doctype html>
@@ -670,9 +803,6 @@ const buildInvoiceHtml = (order, options = {}) => {
       .items td:nth-child(3) {
         word-break: break-word;
       }
-      .items .empty-row td {
-        height: 8.1mm;
-      }
       .totals-wrap {
         width: 45%;
         margin-left: auto;
@@ -849,7 +979,7 @@ const buildInvoiceHtml = (order, options = {}) => {
             </tr>
           </thead>
           <tbody class="items">
-            ${rows}${blankRows}
+            ${rows}
           </tbody>
         </table>
 
@@ -915,7 +1045,7 @@ const buildInvoiceHtml = (order, options = {}) => {
 };
 
 const buildInvoicePdf = async (order, options = {}) => {
-  const browser = await puppeteer.launch(await getInvoiceBrowserLaunchOptions());
+  const browser = await launchInvoiceBrowser();
 
   try {
     const page = await browser.newPage();
@@ -946,6 +1076,7 @@ const buildInvoicePdf = async (order, options = {}) => {
 
 module.exports = {
   buildInvoiceEmailHtml,
+  buildSellerOrderEmailHtml,
   buildInvoiceHtml,
   buildInvoicePdf,
 };

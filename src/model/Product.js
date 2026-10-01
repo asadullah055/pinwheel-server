@@ -18,7 +18,14 @@ const ProductSchema = new mongoose.Schema(
   {
     productName: { type: String, required: true, trim: true },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
-    images: [{ type: String, default: null }],
+    images: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: (images) => images.length <= 8,
+        message: "A product can have a maximum of 8 images",
+      },
+    },
     brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand" },
     description: { type: String, required: true },
     shortDescription: { type: String, default: null },

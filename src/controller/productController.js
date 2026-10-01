@@ -1,7 +1,10 @@
 const createError = require("http-errors");
+const mongoose = require("mongoose");
 
 const { successMessage } = require("../utils/response");
 const Product = require("../model/Product");
+const Brand = require("../model/Brand");
+const Category = require("../model/Category");
 const formidable = require("formidable");
 const {
   uploadToCloudinary,
@@ -14,6 +17,7 @@ const {
 
 const DEFAULT_INSIDE_DHAKA_SHIPPING = 80;
 const DEFAULT_OUTSIDE_DHAKA_SHIPPING = 120;
+const MAX_PRODUCT_IMAGES = 8;
 
 const getFieldValue = (value) => (Array.isArray(value) ? value[0] : value);
 
@@ -76,6 +80,15 @@ const parseExistingImages = (value, fallback = []) => {
   }
 
   return [...new Set(images)];
+};
+
+const validateProductImageCount = (images) => {
+  if (images.length > MAX_PRODUCT_IMAGES) {
+    throw createError(
+      400,
+      `A product can have a maximum of ${MAX_PRODUCT_IMAGES} images`
+    );
+  }
 };
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -391,7 +404,7 @@ if (variants) {
   });
 }; */
 const createProduct = async (req, res, next) => {
-  const form = formidable({ multiples: true });
+  const form = formidable({ multiples: true, maxFiles: MAX_PRODUCT_IMAGES });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
@@ -590,6 +603,8 @@ const createProduct = async (req, res, next) => {
           ? files.images
           : [files.images];
 
+        validateProductImageCount([...imageUrls, ...images]);
+
         for (const img of images) {
           if (!allowedTypes.includes(img.mimetype))
             return next(
@@ -597,13 +612,18 @@ const createProduct = async (req, res, next) => {
             );
         }
 
-        imageUrls = await Promise.all(
+        const uploadedImageUrls = await Promise.all(
           images.map(async (img) => {
             const result = await uploadToCloudinary(img.filepath, "products");
             return result.url;
           })
         );
+
+        imageUrls = [...imageUrls, ...uploadedImageUrls];
       }
+
+      imageUrls = [...new Set(imageUrls)];
+      validateProductImageCount(imageUrls);
 
       // Generate main SKU
 
@@ -721,13 +741,39 @@ const getAllProducts = async (req, res, next) => {
 };
 const getPublicProducts = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
+    const categoryId = String(req.query.category || "").trim();
+    const search = String(req.query.search || req.query.q || "").trim().slice(0, 100);
 
-    let filter = {};
+    const filter = { status: "published" };
 
-    filter.status = "published";
+    if (categoryId) {
+      if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+        throw createError(400, "Invalid category id");
+      }
+
+      filter.category = categoryId;
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(escapeRegex(search), "i");
+      const [brandIds, categoryIds] = await Promise.all([
+        Brand.find({ name: searchRegex }).distinct("_id"),
+        Category.find({ name: searchRegex }).distinct("_id"),
+      ]);
+
+      filter.$or = [
+        { productName: searchRegex },
+        { description: searchRegex },
+        { shortDescription: searchRegex },
+        { sku: searchRegex },
+        { "variants.sku": searchRegex },
+        { brand: { $in: brandIds } },
+        { category: { $in: categoryIds } },
+      ];
+    }
 
     const totalProducts = await Product.countDocuments(filter);
 
@@ -752,6 +798,8 @@ const getPublicProducts = async (req, res, next) => {
       message: "Products fetched successfully",
       products,
       totalProducts,
+      page,
+      totalPages: Math.ceil(totalProducts / limit),
     });
   } catch (error) {
     console.error(error);
@@ -1003,7 +1051,7 @@ const getProductById = async (req, res, next) => {
   });
 }; */
 const updateProduct = async (req, res, next) => {
-  const form = formidable({ multiples: true });
+  const form = formidable({ multiples: true, maxFiles: MAX_PRODUCT_IMAGES });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return next(createError(400, "Error parsing form data"));
@@ -1225,6 +1273,8 @@ const updateProduct = async (req, res, next) => {
           ? files.images
           : [files.images];
 
+        validateProductImageCount([...updatedImages, ...images]);
+
         for (const img of images) {
           if (!allowedTypes.includes(img.mimetype))
             return next(
@@ -1241,6 +1291,9 @@ const updateProduct = async (req, res, next) => {
 
         updatedImages = [...updatedImages, ...newUrls];
       }
+
+      updatedImages = [...new Set(updatedImages)];
+      validateProductImageCount(updatedImages);
 
       /* ------------------------------------------------------------------
        ✔️ Apply updates to product model

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@sparticuz/chromium": "^138.0.2",
+    "@vercel/functions": "^3.9.9",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.6.0",
     "compression": "^1.8.0",

@@ -165,6 +165,15 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    sellerNotificationSentAt: {
+      type: Date,
+      default: null,
+    },
+    sellerNotificationError: {
+      type: String,
+      default: null,
+      select: false,
+    },
   },
   {
     timestamps: true,

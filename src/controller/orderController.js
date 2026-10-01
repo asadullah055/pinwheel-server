@@ -1,8 +1,13 @@
 const createError = require("http-errors");
 const mongoose = require("mongoose");
+const { waitUntil } = require("@vercel/functions");
 const Order = require("../model/Order");
 const Product = require("../model/Product");
-const { buildInvoiceEmailHtml, buildInvoicePdf } = require("../utils/invoice");
+const {
+  buildInvoiceEmailHtml,
+  buildInvoicePdf,
+  buildSellerOrderEmailHtml,
+} = require("../utils/invoice");
 const { successMessage } = require("../utils/response");
 const { sendEmail } = require("../utils/sendEmail");
 
@@ -238,7 +243,7 @@ const createOrder = async (req, res, next) => {
     const populatedOrder = await findPopulatedOrderById(order._id, {
       includeInvoiceToken: true,
     });
-    queueOrderInvoiceEmail(populatedOrder);
+    queueOrderEmails(populatedOrder);
 
     return successMessage(res, 201, {
       message: "Order placed successfully",
@@ -519,12 +524,112 @@ const getOrderById = async (req, res, next) => {
   }
 };
 
-const queueOrderInvoiceEmail = (order) => {
-  const run = () => {
-    sendOrderInvoiceEmail(order).catch((error) => {
-      console.log("failed to queue invoice email", error);
-    });
+const getSellerOrderGroups = (order) => {
+  const groups = new Map();
+
+  for (const item of order?.items || []) {
+    const seller = item?.seller;
+    const sellerId = seller?._id?.toString?.() || seller?.toString?.();
+    const email = seller?.email ? String(seller.email).trim().toLowerCase() : "";
+
+    if (!sellerId || !email || !EMAIL_PATTERN.test(email)) continue;
+
+    if (!groups.has(sellerId)) {
+      groups.set(sellerId, { sellerId, seller, email, items: [] });
+    }
+
+    groups.get(sellerId).items.push(item);
+  }
+
+  return [...groups.values()];
+};
+
+const sendSellerOrderNotifications = async (order) => {
+  const sellerGroups = getSellerOrderGroups(order);
+
+  if (sellerGroups.length === 0) {
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { sellerNotificationError: "No seller email recipient found" } }
+    );
+    return;
+  }
+
+  const results = [];
+
+  // Generate seller PDFs sequentially to avoid launching several Chromium
+  // instances at once for a multi-seller order. The customer invoice job can
+  // still run alongside this task.
+  for (const { sellerId, seller, email, items } of sellerGroups) {
+    try {
+      const sellerOrder = prepareOrderForResponse(order, {
+        role: "seller",
+        id: sellerId,
+      });
+      const pdfBuffer = await buildInvoicePdf(sellerOrder, {
+        scopeLabel: "Seller Copy",
+      });
+
+      await sendEmail({
+        email,
+        subject: `New Cartout order ${getOrderNumberForEmail(order)}`,
+        html: buildSellerOrderEmailHtml(order, seller, items),
+        attachments: [
+          {
+            filename: getInvoiceFilename(order),
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          },
+        ],
+      });
+      results.push({ status: "fulfilled" });
+    } catch (reason) {
+      results.push({ status: "rejected", reason });
+      console.log("seller invoice email failed", reason);
+    }
+  }
+
+  const failedResults = results.filter((result) => result.status === "rejected");
+
+  if (failedResults.length > 0) {
+    const errorMessage = `${failedResults.length} of ${sellerGroups.length} seller notification emails failed`;
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { sellerNotificationSentAt: null, sellerNotificationError: errorMessage } }
+    );
+    console.log(errorMessage);
+    return;
+  }
+
+  const sentAt = new Date();
+  order.sellerNotificationSentAt = sentAt;
+  await Order.updateOne(
+    { _id: order._id },
+    { $set: { sellerNotificationSentAt: sentAt, sellerNotificationError: null } }
+  );
+};
+
+const queueOrderEmails = (order) => {
+  const run = async () => {
+    const results = await Promise.allSettled([
+      sendOrderInvoiceEmail(order),
+      sendSellerOrderNotifications(order),
+    ]);
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        console.log("failed to queue order email", result.reason);
+      }
+    }
   };
+
+  // Vercel may freeze the function as soon as the response is sent. Register
+  // the email task with the request lifecycle so it can finish in the
+  // background without delaying the order confirmation response.
+  if (process.env.VERCEL) {
+    waitUntil(run());
+    return;
+  }
 
   if (typeof setImmediate === "function") {
     setImmediate(run);
