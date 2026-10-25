@@ -1,3 +1,4 @@
+const { validateRequest } = require("../middleware/inputValidation");
 const express = require("express");
 const {
   register,
@@ -19,19 +20,19 @@ const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.post("/register", register);
-router.post("/login", login);
-router.get("/refresh", refreshAccessToken);
-router.post("/logout", protect, logout);
-router.post("/forgot-password", forgotPassword);
-router.post("send-otp", sendOtp);
-router.post("/verify-otp", verifyOTP);
-router.put("/update-password", protect, changePassword);
-router.put("/update-profile", protect, updateProfile);
-router.put("/seller-profile", protect, updateSellerProfile);
-router.get("/profile", protect, profileDetails);
-router.get("/sellers", protect, getAllSellers);
-router.put('verify-email', protect, verifyEmail);
-router.post("/reset-password", resetPassword);
+router.post("/register", validateRequest("register"), register);
+router.post("/login", validateRequest("login"), login);
+router.get("/refresh", validateRequest("empty"), refreshAccessToken);
+router.post("/logout",  protect, validateRequest("empty"), logout);
+router.post("/forgot-password", validateRequest("email"), forgotPassword);
+router.post("/send-otp", validateRequest("email"), sendOtp);
+router.post("/verify-otp", validateRequest("otp"), verifyOTP);
+router.put("/update-password",  protect, validateRequest("changePassword"), changePassword);
+router.put("/update-profile",  protect, validateRequest("profile"), updateProfile);
+router.put("/seller-profile",  protect, validateRequest("multipart"), updateSellerProfile);
+router.get("/profile",  protect, validateRequest("empty"), profileDetails);
+router.get("/sellers",  protect, validateRequest("empty"), getAllSellers);
+router.put("/verify-email",  protect, validateRequest("empty"), verifyEmail);
+router.post("/reset-password", validateRequest("resetPassword"), resetPassword);
 
 module.exports = router;

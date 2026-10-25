@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+mongoose.set("maxTimeMS", 10000);
 const { mongodb_url } = require("../../secret");
 
 

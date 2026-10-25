@@ -1,4 +1,5 @@
-const formidable = require("formidable");
+const { createSecureForm } = require("../utils/secureForm");
+const { escapeRegex } = require("../utils/inputSecurity");
 const createError = require("http-errors");
 const Category = require("../model/Category");
 const { successMessage } = require("../utils/response");
@@ -17,10 +18,10 @@ const normalizeOptionalMetaData = (document) => {
 };
 
 const createCategory = async (req, res, next) => {
-  const form = formidable();
-  form.parse(req, async (err, fields, files) => {
+  const form = createSecureForm("taxonomyCreate");
+  return form.parse(req, async (err, fields, files) => {
     if (err) {
-      throw createError(401, "Error parsing form data");
+      return next(err);
     }
     try {
       let { name } = fields;
@@ -34,7 +35,7 @@ const createCategory = async (req, res, next) => {
       const slug = name.split(" ").join("-");
       // Check if the category name already exists
       const existingCategory = await Category.findOne({
-        name: { $regex: `^${name}$`, $options: "i" }, // Case-insensitive match
+        name: { $regex: `^${escapeRegex(name)}$`, $options: "i" }, // Case-insensitive match
       });
 
       if (existingCategory) {
@@ -123,11 +124,11 @@ const getCategoryById = async (req, res, next) => {
   }
 };
 const updateCategory = async (req, res, next) => {
-  const form = formidable();
+  const form = createSecureForm("taxonomyUpdate");
 
-  form.parse(req, async (err, fields, files) => {
+  return form.parse(req, async (err, fields, files) => {
     if (err) {
-      return next(createError(400, "Error parsing form data"));
+      return next(err);
     }
 
     try {

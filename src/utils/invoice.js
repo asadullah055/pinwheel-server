@@ -507,7 +507,7 @@ const buildInvoiceHtml = (order, options = {}) => {
   const shippingFee = Number(order?.shippingFee || 0);
   const payableAmount = Number(order?.payableAmount || subtotal + shippingFee);
   const discount = Number(order?.discount || order?.discountAmount || 0);
-  const advance = Number(order?.advance || order?.advanceAmount || 0);
+  const advance = Number(order?.paidAmount || order?.advance || order?.advanceAmount || 0);
   const codAmount = Math.max(payableAmount - advance, 0);
   const sellerName = getSellerHeaderName(order);
   const logoDataUri = getLogoDataUri();
@@ -999,11 +999,11 @@ const buildInvoiceHtml = (order, options = {}) => {
                 <td class="amount">${formatMoney(discount)}</td>
               </tr>
               <tr>
-                <td>Advance</td>
+                <td>Confirmed Payment</td>
                 <td class="amount">${formatMoney(advance)}</td>
               </tr>
               <tr class="cod">
-                <td>Cash On Delivery</td>
+                <td>${order?.paymentMethod === "bKash" && !advance ? "Outstanding (payment pending)" : "Cash On Delivery"}</td>
                 <td class="amount">${formatMoney(codAmount)}</td>
               </tr>
             </tbody>

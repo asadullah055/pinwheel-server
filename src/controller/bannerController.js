@@ -1,4 +1,5 @@
-const formidable = require("formidable");
+const { createSecureForm } = require("../utils/secureForm");
+const { escapeRegex } = require("../utils/inputSecurity");
 const createError = require("http-errors");
 
 const Banner = require("../model/Banner");
@@ -14,13 +15,13 @@ const createBanner = async (req, res, next) => {
     return next(createError(403, "Only Admins can create banners"));
   }
 
-  const form = formidable();
+  const form = createSecureForm("bannerCreate");
   //  console.log(form);
-  form.parse(req, async (err, fields, files) => {
+  return form.parse(req, async (err, fields, files) => {
     // console.log(fields);
 
     if (err) {
-      return next(createError(400, "Error parsing form data"));
+      return next(err);
     }
 
     try {
@@ -139,11 +140,11 @@ const updateBanner = async (req, res, next) => {
   }
 
   const { id } = req.params;
-  const form = formidable();
+  const form = createSecureForm("bannerUpdate");
 
-  form.parse(req, async (err, fields, files) => {
+  return form.parse(req, async (err, fields, files) => {
     if (err) {
-      return next(createError(400, "Error parsing form data"));
+      return next(err);
     }
 
     try {
@@ -165,6 +166,10 @@ const updateBanner = async (req, res, next) => {
         banner.startDate = startDate ? new Date(startDate) : null;
       if (endDate !== undefined)
         banner.endDate = endDate ? new Date(endDate) : null;
+
+      if (banner.endDate && (!banner.startDate || banner.endDate < banner.startDate)) {
+        throw createError(400, "Banner end date must follow its start date");
+      }
 
       // Update image if provided
       if (bannerImage) {
@@ -300,7 +305,7 @@ const updateBannerPriority = async (req, res, next) => {
     }
 
     const updatePromises = banners.map(({ id, priority }) =>
-      Banner.findByIdAndUpdate(id, { priority }, { new: true })
+      Banner.findByIdAndUpdate(id, { $set: { priority } }, { new: true, runValidators: true })
     );
 
     await Promise.all(updatePromises);

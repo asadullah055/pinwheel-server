@@ -1,4 +1,5 @@
-const formidable = require("formidable");
+const { createSecureForm } = require("../utils/secureForm");
+const { escapeRegex } = require("../utils/inputSecurity");
 const Brand = require("../model/Brand");
 const createError = require("http-errors");
 const { successMessage } = require("../utils/response");
@@ -17,11 +18,11 @@ const normalizeOptionalMetaData = (document) => {
 };
 
 const createBrand = async (req, res, next) => {
-  const form = formidable();
+  const form = createSecureForm("taxonomyCreate");
 
-  form.parse(req, async (err, fields, files) => {
+  return form.parse(req, async (err, fields, files) => {
     if (err) {
-      throw createError(401, "Error parsing form data");
+      return next(err);
     }
 
     try {
@@ -36,7 +37,7 @@ const createBrand = async (req, res, next) => {
       const slug = name.split(" ").join("-");
       // Check if the brand name already exists
       const existingBrand = await Brand.findOne({
-        name: { $regex: `^${name}$`, $options: "i" }, // Case-insensitive match
+        name: { $regex: `^${escapeRegex(name)}$`, $options: "i" }, // Case-insensitive match
       });
       if (existingBrand) {
         return next(createError(400, "Brand name already exists"));
@@ -128,11 +129,11 @@ const getBrandById = async (req, res, next) => {
   }
 };
 const updateBrand = async (req, res, next) => {
-  const form = formidable();
+  const form = createSecureForm("taxonomyUpdate");
 
-  form.parse(req, async (err, fields, files) => {
+  return form.parse(req, async (err, fields, files) => {
     if (err) {
-      return next(createError(400, "Error parsing form data"));
+      return next(err);
     }
 
     try {

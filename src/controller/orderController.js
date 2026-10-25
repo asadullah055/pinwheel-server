@@ -1,4 +1,5 @@
 const createError = require("http-errors");
+const crypto = require("crypto");
 const mongoose = require("mongoose");
 const { waitUntil } = require("@vercel/functions");
 const Order = require("../model/Order");
@@ -10,6 +11,8 @@ const {
 } = require("../utils/invoice");
 const { successMessage } = require("../utils/response");
 const { sendEmail } = require("../utils/sendEmail");
+const { getPaymentOptions, buildOrderPayment } = require("../utils/payment");
+const { LIMITS, money, parse } = require("../utils/inputSecurity");
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -55,6 +58,20 @@ const createOrder = async (req, res, next) => {
   try {
     const { items, shippingAddress, paymentMethod, customer, shippingFee } = req.body;
     const isLoggedIn = Boolean(req.id);
+    const checkoutRequestId = req.body.checkoutRequestId;
+    const checkoutAccessHash = checkoutRequestId ? checkoutSecretHash(req.body.checkoutAccessToken) : undefined;
+    if (checkoutRequestId && (typeof checkoutRequestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(checkoutRequestId))) {
+      throw createError(400, "Invalid checkout request id");
+    }
+    if (paymentMethod === "bKash" && !checkoutRequestId) throw createError(400, "Checkout request id is required");
+    if (checkoutRequestId) {
+      const existingOrder = await Order.findOne({ checkoutRequestId }).select("+invoiceAccessToken +checkoutAccessHash");
+      if (existingOrder) {
+        authorizeCheckoutRetry(existingOrder, req);
+        const populated = await findPopulatedOrderById(existingOrder._id, { includeInvoiceToken: true });
+        return successMessage(res, 200, { message: "Order already created", order: prepareOrderForResponse(populated, req, { includeInvoiceToken: true }) });
+      }
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       throw createError(400, "Order items are required");
@@ -92,13 +109,16 @@ const createOrder = async (req, res, next) => {
       throw createError(400, "Customer email must be a valid email address");
     }
 
-    const parsedShippingFee = Number(shippingFee ?? 0);
+    let parsedShippingFee = Number(shippingFee ?? 0);
     if (!Number.isFinite(parsedShippingFee) || parsedShippingFee < 0) {
       throw createError(400, "Shipping fee must be a valid non-negative number");
     }
 
     const normalizedItems = [];
     const sellerIds = new Set();
+    const shippingBySeller = new Map();
+    const chargeKey = normalizedShippingAddress.fullAddress.toLowerCase().includes("dhaka")
+      ? "insideDhaka" : "outsideDhaka";
     let totalAmount = 0;
 
     for (const item of items) {
@@ -114,7 +134,7 @@ const createOrder = async (req, res, next) => {
       }
 
       const product = await Product.findById(productId).select(
-        "productName status variants creator"
+        "productName status variants creator shippingCharge"
       );
 
       if (!product) {
@@ -143,6 +163,10 @@ const createOrder = async (req, res, next) => {
       const requestedVariantId = item?.variant || item?.variantId;
       let selectedVariant = null;
 
+      if (requestedVariantId !== undefined && !mongoose.isObjectIdOrHexString(requestedVariantId)) {
+        throw createError(400, "Invalid variant id");
+      }
+
       if (requestedVariantId && mongoose.Types.ObjectId.isValid(requestedVariantId)) {
         selectedVariant = activeVariants.find(
           (variant) => variant._id.toString() === requestedVariantId.toString()
@@ -164,6 +188,7 @@ const createOrder = async (req, res, next) => {
       }
 
       const unitPrice = getVariantUnitPrice(selectedVariant);
+      parse(money.refine((value) => value > 0, "Invalid product price"), unitPrice);
 
       normalizedItems.push({
         product: product._id,
@@ -183,11 +208,29 @@ const createOrder = async (req, res, next) => {
       }
 
       totalAmount += unitPrice * quantity;
+      const sellerKey = String(product.creator || product._id);
+      const charge = Number(product.shippingCharge?.[chargeKey] ?? (chargeKey === "insideDhaka" ? 80 : 120));
+      if (!Number.isFinite(charge) || charge < 0) throw createError(400, "Invalid product delivery charge");
+      shippingBySeller.set(sellerKey, Math.max(shippingBySeller.get(sellerKey) || 0, charge));
     }
 
+    const currentShippingFee = Array.from(shippingBySeller.values()).reduce((sum, charge) => sum + charge, 0);
+    if (Math.abs(parsedShippingFee - currentShippingFee) > 0.001) {
+      throw createError(400, "Delivery charge has changed. Please refresh checkout and review your order.");
+    }
+    parsedShippingFee = currentShippingFee;
     const payableAmount = totalAmount + parsedShippingFee;
+    parse(money, payableAmount);
+    if (paymentMethod === "bKash" && (typeof req.body.expectedTotal !== "number" || Math.abs(req.body.expectedTotal - payableAmount) > 0.001 || !Number.isFinite(req.body.expectedTotal))) {
+      throw createError(400, "Order price has changed. Please update the products in your cart and review the total before paying.");
+    }
+    const payment = buildOrderPayment(req.body, payableAmount);
+    if (payment.status === "Awaiting Payment") normalizedItems.forEach((item) => { item.status = "Awaiting Payment"; });
 
     const qtyMap = buildQuantityMap(normalizedItems);
+    if ([...qtyMap.values()].some((item) => item.quantity > LIMITS.quantity)) {
+      throw createError(400, "Total quantity for one variant exceeds the order limit");
+    }
     const adjustedStockItems = [];
     try {
       for (const adjustment of qtyMap.values()) {
@@ -211,7 +254,9 @@ const createOrder = async (req, res, next) => {
       payableAmount,
       stockAdjusted: true,
       shippingAddress: normalizedShippingAddress,
-      paymentMethod,
+      ...payment,
+      ...(checkoutRequestId ? { checkoutRequestId } : {}),
+      ...(checkoutRequestId ? { checkoutAccessHash } : {}),
     };
 
     if (customer && typeof customer === "object") {
@@ -237,13 +282,23 @@ const createOrder = async (req, res, next) => {
       order = await Order.create(orderPayload);
     } catch (error) {
       await rollbackStockAdjustments(adjustedStockItems);
+      if (error.code === 11000 && error.keyPattern?.checkoutRequestId) {
+        const existing = await Order.findOne({ checkoutRequestId }).select("+checkoutAccessHash");
+        if (!existing) throw createError(409, "Checkout is being processed. Please retry");
+        authorizeCheckoutRetry(existing, req);
+        const populated = await findPopulatedOrderById(existing._id, { includeInvoiceToken: true });
+        return successMessage(res, 200, { message: "Order already created", order: prepareOrderForResponse(populated, req, { includeInvoiceToken: true }) });
+      }
+      if (error.code === 11000 && error.keyPattern?.["bkash.transactionId"]) {
+        throw createError(409, "This bKash Transaction ID has already been used for an order");
+      }
       throw error;
     }
 
     const populatedOrder = await findPopulatedOrderById(order._id, {
       includeInvoiceToken: true,
     });
-    queueOrderEmails(populatedOrder);
+    if (paymentMethod === "Cash on Delivery") queueOrderEmails(populatedOrder);
 
     return successMessage(res, 201, {
       message: "Order placed successfully",
@@ -277,6 +332,24 @@ const getAllOrders = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+const getOrderPaymentOptions = (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  return successMessage(res, 200, getPaymentOptions());
+};
+
+const checkoutSecretHash = (secret) => {
+  if (typeof secret !== "string" || !/^[a-f\d]{64}$/.test(secret)) throw createError(400, "Checkout access token is required");
+  return crypto.createHash("sha256").update(secret).digest("hex");
+};
+const authorizeCheckoutRetry = (order, req) => {
+  const owner = req.id && order.user && String(order.user) === req.id;
+  const secret = req.body.checkoutAccessToken;
+  const digest = typeof secret === "string" ? checkoutSecretHash(secret) : "";
+  const valid = order.checkoutAccessHash && digest.length === order.checkoutAccessHash.length &&
+    crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(order.checkoutAccessHash));
+  if (!owner && !valid) throw createError(403, "Valid checkout access is required");
 };
 
 const getSellerOrders = async (req, res, next) => {
@@ -358,12 +431,8 @@ const findPopulatedOrderById = (id, options = {}) => {
 };
 
 const sellerOwnsOrderItem = (item, sellerId) => {
-  if (item.seller && item.seller._id && item.seller._id.toString() === sellerId) {
-    return true;
-  }
-
-  if (item.seller && item.seller.toString && item.seller.toString() === sellerId) {
-    return true;
+  if (item.seller) {
+    return String(item.seller._id || item.seller) === String(sellerId);
   }
 
   return Boolean(
@@ -376,6 +445,13 @@ const sellerOwnsOrderItem = (item, sellerId) => {
 const prepareOrderForResponse = (order, req = {}, options = {}) => {
   const plainOrder = typeof order.toObject === "function" ? order.toObject() : order;
   const responseOrder = { ...plainOrder };
+  if (responseOrder.bkash) {
+    responseOrder.bkash = { ...responseOrder.bkash };
+    ["signature", "callbackToken", "lockId", "lockUntil", "executeStartedAt", "checkoutUrl"].forEach((key) => delete responseOrder.bkash[key]);
+  }
+  delete responseOrder.checkoutRequestId;
+  delete responseOrder.checkoutAccessHash;
+  responseOrder.dueAmount = Math.max(Number(plainOrder.payableAmount || 0) - Number(plainOrder.paidAmount || 0), 0);
 
   if (!options.includeInvoiceToken) {
     delete responseOrder.invoiceAccessToken;
@@ -399,6 +475,11 @@ const prepareOrderForResponse = (order, req = {}, options = {}) => {
     totalAmount: sellerTotalAmount,
     payableAmount: sellerTotalAmount,
     shippingFee: 0,
+    // The merchant payment belongs to the whole order, not an individual seller.
+    paymentAmount: undefined,
+    paidAmount: undefined,
+    dueAmount: undefined,
+    bkash: undefined,
   };
 };
 
@@ -704,234 +785,109 @@ const normalizeVariantAttributes = (attributes) => {
   return { ...attributes };
 };
 
-const decreaseVariantStock = async (productId, variantId, quantity) => {
-  const result = await Product.updateOne(
-    {
-      _id: productId,
-      status: "published",
-      variants: {
-        $elemMatch: {
-          _id: variantId,
-          availability: { $ne: false },
-          stock: { $gte: quantity },
-        },
-      },
-    },
-    {
-      $inc: {
-        "variants.$.stock": -quantity,
-      },
-    }
-  );
-
-  if (result.modifiedCount !== 1) {
-    throw createError(400, "Selected product variant is out of stock");
-  }
+const decreaseVariantStock = async (productId, variantId, quantity, session) => {
+  const result = await Product.updateOne({ _id: productId, status: "published",
+    variants: { $elemMatch: { _id: variantId, availability: { $ne: false }, stock: { $gte: quantity } } },
+  }, { $inc: { "variants.$.stock": -quantity, __v: 1 } }, { session });
+  if (result.modifiedCount !== 1) throw createError(400, "Selected product variant is out of stock");
 };
-
-const increaseVariantStock = async (productId, variantId, quantity) => {
-  await Product.updateOne(
-    {
-      _id: productId,
-      "variants._id": variantId,
-    },
-    {
-      $inc: {
-        "variants.$.stock": quantity,
-      },
-    }
-  );
+const increaseVariantStock = async (productId, variantId, quantity, session) => {
+  const result = await Product.updateOne({ _id: productId, "variants._id": variantId },
+    { $inc: { "variants.$.stock": quantity, __v: 1 } }, { session });
+  if (result.modifiedCount !== 1) throw createError(409, "Cannot restore stock: the ordered variant no longer exists");
 };
-
-const increaseLegacyProductStock = async (productId, quantity) => {
-  const product = await Product.findById(productId).select("variants");
-
+const increaseLegacyProductStock = async (productId, quantity, session) => {
+  const product = await Product.findById(productId).select("variants").session(session || null);
   if (!product || !Array.isArray(product.variants) || product.variants.length === 0) {
-    return;
+    throw createError(409, "Cannot restore stock: product no longer exists");
   }
-
-  const firstVariant = product.variants[0];
-  firstVariant.stock = Number(firstVariant.stock || 0) + Number(quantity || 0);
-  await product.save();
+  product.variants[0].stock = Number(product.variants[0].stock || 0) + Number(quantity || 0);
+  await product.save({ session });
 };
-
-const increaseStockAdjustment = async (adjustment) => {
+const increaseStockAdjustment = async (adjustment, session) => {
   if (adjustment.variantId) {
-    await increaseVariantStock(
-      adjustment.productId,
-      adjustment.variantId,
-      adjustment.quantity
-    );
-    return;
+    return increaseVariantStock(adjustment.productId, adjustment.variantId, adjustment.quantity, session);
   }
-
-  await increaseLegacyProductStock(adjustment.productId, adjustment.quantity);
+  return increaseLegacyProductStock(adjustment.productId, adjustment.quantity, session);
 };
 
 const rollbackStockAdjustments = async (adjustments) => {
   await Promise.all(adjustments.map((adjustment) => increaseStockAdjustment(adjustment)));
 };
 
-const updateOrderItemStatus = async (req, res, next) => {
-  try {
-    const { orderId, itemId } = req.params;
-    const { status } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
-      throw createError(400, "Invalid order or item id");
-    }
-
-    if (!status || !ORDER_STATUSES.includes(status)) {
-      throw createError(400, "Valid item status is required");
-    }
-
-    const order = await Order.findById(orderId)
-      .populate("items.seller", "name email shopName shopLogo mobileNumber")
-      .populate("items.product", "productName slug images creator");
-
-    if (!order) {
-      throw createError(404, "Order not found");
-    }
-
-    const item = order.items.id(itemId);
-
-    if (!item) {
-      throw createError(404, "Order item not found");
-    }
-
-    if (req.role !== "admin" && req.role !== "seller") {
-      throw createError(403, "Only admin or seller can update item status");
-    }
-
-    if (req.role === "seller" && !sellerOwnsOrderItem(item, req.id)) {
-      throw createError(403, "You can only update your own product status");
-    }
-
-    const previousStatus = item.status || order.status || "Pending";
-    const wasStockAdjusted = item.stockAdjusted !== false;
-
-    if (status === previousStatus) {
-      return successMessage(res, 200, {
-        message: "Item status already set",
-        order: prepareOrderForResponse(order, req),
-      });
-    }
-
-    if (status === "Cancelled" && previousStatus !== "Cancelled" && wasStockAdjusted) {
-      await increaseStockAdjustment({
-        productId: item.product._id || item.product,
-        variantId: item.variant || null,
-        quantity: item.quantity,
-      });
-      item.stockAdjusted = false;
-    }
-
-    if (previousStatus === "Cancelled" && status !== "Cancelled" && item.stockAdjusted === false) {
-      if (!item.variant) {
-        throw createError(400, "Cannot restore legacy item without variant information");
-      }
-
-      await decreaseVariantStock(
-        item.product._id || item.product,
-        item.variant,
-        Number(item.quantity || 0)
-      );
-      item.stockAdjusted = true;
-    }
-
-    item.status = status;
-    await order.save({ validateBeforeSave: false });
-
-    const updatedOrder = await findPopulatedOrderById(order._id);
-
-    return successMessage(res, 200, {
-      message: "Item status updated successfully",
-      order: prepareOrderForResponse(updatedOrder, req),
-    });
-  } catch (error) {
-    next(error);
-  }
+const checkUnpaidBkashStatus = (order, status, itemOnly = false) => {
+  if (order.paymentMethod !== "bKash" || Number(order.paidAmount) > 0) return;
+  if (status === "Awaiting Payment") return;
+  if (!itemOnly && status === "Cancelled" &&
+      (!order.bkash?.paymentId || order.bkash.createdAt < new Date(Date.now() - 24 * 60 * 60 * 1000)) &&
+      !(order.bkash?.lockUntil > new Date())) return;
+  throw createError(409, "This bKash order is awaiting payment. An unpaid order can only be cancelled as a whole after its active payment session expires (24 hours).");
 };
 
-const updateOrderStatus = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!status || !ORDER_STATUSES.includes(status)) {
-      throw createError(400, "Valid order status is required");
-    }
-
-    const order = await Order.findById(id).populate("items.product", "creator");
-
-    if (!order) {
-      throw createError(404, "Order not found");
-    }
-
-    if (req.role !== "admin") {
-      throw createError(403, "Only admin can update full order status");
-    }
-
-    if (order.status === status) {
-      return successMessage(res, 200, {
-        message: "Order status already set",
-        order,
-      });
-    }
-
-    const shouldRestoreStockItems = order.items.filter(
-      (item) => item.stockAdjusted !== false
-    );
-    const shouldReserveStockItems = order.items.filter(
-      (item) => item.stockAdjusted === false
-    );
-
-    if (status === "Cancelled" && shouldRestoreStockItems.length > 0) {
-      const qtyMap = buildQuantityMap(shouldRestoreStockItems);
-      for (const adjustment of qtyMap.values()) {
-        await increaseStockAdjustment(adjustment);
+// Inventory and order status commit together. Driver retries re-read current state,
+// preventing concurrent cancellations from restoring the same reservation twice.
+const transitionOrder = async (req, itemOnly) => {
+  const id = itemOnly ? req.params.orderId : req.params.id;
+  const status = req.body.status;
+  if (!mongoose.isObjectIdOrHexString(id) || (itemOnly && !mongoose.isObjectIdOrHexString(req.params.itemId))) {
+    throw createError(400, "Invalid order or item id");
+  }
+  if (!ORDER_STATUSES.includes(status)) throw createError(400, "Valid status is required");
+  if (itemOnly ? !["admin", "seller"].includes(req.role) : req.role !== "admin") {
+    throw createError(403, itemOnly ? "Only admin or seller can update item status" : "Only admin can update full order status");
+  }
+  await mongoose.connection.transaction(async (session) => {
+    const order = await Order.findById(id).session(session).populate("items.product", "creator");
+    if (!order) throw createError(404, "Order not found");
+    let items = order.items;
+    if (itemOnly) {
+      const item = order.items.id(req.params.itemId);
+      if (!item) throw createError(404, "Order item not found");
+      if (req.role === "seller" && !sellerOwnsOrderItem(item, req.id)) {
+        throw createError(403, "You can only update your own product status");
       }
-      order.stockAdjusted = false;
+      items = [item];
     }
-
-    if (status !== "Cancelled" && shouldReserveStockItems.length > 0) {
-      const qtyMap = buildQuantityMap(shouldReserveStockItems);
-      for (const adjustment of qtyMap.values()) {
-        if (!adjustment.variantId) {
-          throw createError(400, "Cannot restore legacy item without variant information");
-        }
-
-        await decreaseVariantStock(
-          adjustment.productId,
-          adjustment.variantId,
-          adjustment.quantity
-        );
-      }
-      order.stockAdjusted = true;
+    checkUnpaidBkashStatus(order, status, itemOnly);
+    const restoring = items.filter((item) => status === "Cancelled" && item.stockAdjusted !== false);
+    const reserving = items.filter((item) => status !== "Cancelled" && item.stockAdjusted === false);
+    for (const adjustment of buildQuantityMap(restoring).values()) {
+      await increaseStockAdjustment(adjustment, session);
     }
-
-    order.status = status;
-    order.items.forEach((item) => {
+    for (const adjustment of buildQuantityMap(reserving).values()) {
+      if (!adjustment.variantId) throw createError(400, "Cannot restore legacy item without variant information");
+      await decreaseVariantStock(adjustment.productId, adjustment.variantId, adjustment.quantity, session);
+    }
+    for (const item of items) {
       item.status = status;
       item.stockAdjusted = status !== "Cancelled";
-    });
-    await order.save({ validateBeforeSave: false });
-
-    const updatedOrder = await Order.findById(order._id)
-      .populate("user", "name email")
-      .populate("sellers", "name email")
-      .populate("items.product", "productName slug images creator");
-
-    return successMessage(res, 200, {
-      message: "Order status updated successfully",
-      order: updatedOrder,
-    });
-  } catch (error) {
-    next(error);
-  }
+    }
+    if (!itemOnly) order.status = status;
+    order.stockAdjusted = order.items.some((item) => item.stockAdjusted !== false);
+    await order.save({ session, validateBeforeSave: false });
+  });
+  return id;
+};
+const updateOrderItemStatus = async (req, res, next) => {
+  try {
+    const id = await transitionOrder(req, true);
+    return successMessage(res, 200, { message: "Item status updated successfully",
+      order: prepareOrderForResponse(await findPopulatedOrderById(id), req) });
+  } catch (error) { next(error); }
+};
+const updateOrderStatus = async (req, res, next) => {
+  try {
+    const id = await transitionOrder(req, false);
+    return successMessage(res, 200, { message: "Order status updated successfully",
+      order: prepareOrderForResponse(await findPopulatedOrderById(id), req) });
+  } catch (error) { next(error); }
 };
 
 module.exports = {
+  getOrderPaymentOptions,
+  findPopulatedOrderById,
+  prepareOrderForResponse,
+  queueOrderEmails,
   createOrder,
   getAllOrders,
   getSellerOrders,

@@ -4,7 +4,7 @@ const UserSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, trim: true },
-    password: { type: String, required: true },
+    password: { type: String, required: true, select: false },
     profileImageUrl: { type: String, default: null },
     shopLogo: { type: String, default: null },
     shopUrl: { type: String, default: "", trim: true, index: true },
@@ -22,8 +22,12 @@ const UserSchema = new mongoose.Schema(
     bankNameOrMfs: { type: String, default: "", trim: true },
     bankRoutingNumber: { type: String, default: "", trim: true },
     bankBranchName: { type: String, default: "", trim: true },
-    otp: { type: String, default: "0" },
+    otp: { type: String, default: null, select: false },
     otpExpires: { type: Date, default: null },
+    otpPurpose: { type: String, enum: ["verify-email", "reset-password", null], default: null },
+    otpAttempts: { type: Number, default: 0 },
+    otpSentAt: { type: Date, default: null },
+    tokenVersion: { type: Number, default: 0, select: false },
     isVerified: { type: Boolean, default: false },
     role: { type: String, enum: ["seller", "admin"], default: "seller" },
     refreshToken: {

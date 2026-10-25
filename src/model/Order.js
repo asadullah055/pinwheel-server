@@ -20,6 +20,8 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    checkoutRequestId: { type: String, unique: true, sparse: true, select: false },
+    checkoutAccessHash: { type: String, select: false },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -143,14 +145,30 @@ const orderSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["Credit Card", "PayPal", "Cash on Delivery"],
+      enum: ["Credit Card", "PayPal", "Cash on Delivery", "bKash"],
       required: true,
     },
     paymentStatus: {
       type: String,
-      enum: ["Pending", "Paid", "Failed"],
+      enum: ["Pending", "Partially Paid", "Paid", "Failed"],
       default: "Pending",
     },
+    paymentPlan: { type: String, enum: ["COD", "Full", "Advance"], default: "COD" },
+    paymentAmount: { type: Number, min: 0, default: 0 },
+    paidAmount: { type: Number, min: 0, default: 0 },
+    bkash: {
+      senderNumber: { type: String, trim: true },
+      transactionId: { type: String, trim: true, uppercase: true },
+      paymentId: { type: String },
+      checkoutUrl: { type: String },
+      signature: { type: String, select: false },
+      callbackToken: { type: String, select: false },
+      executeStartedAt: { type: Date, default: null },
+      lockUntil: { type: Date, default: null },
+      lockId: { type: String, select: false },
+      createdAt: { type: Date },
+    },
+    paymentVerifiedAt: { type: Date, default: null },
     invoiceAccessToken: {
       type: String,
       default: () => crypto.randomBytes(24).toString("hex"),
@@ -178,6 +196,15 @@ const orderSchema = new mongoose.Schema(
   {
     timestamps: true,
   }
+);
+
+// A transaction can only fund one order, including concurrent submissions.
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ "items.seller": 1, createdAt: -1 });
+orderSchema.index({ "items.product": 1, createdAt: -1 });
+orderSchema.index(
+  { "bkash.transactionId": 1 },
+  { unique: true, partialFilterExpression: { "bkash.transactionId": { $type: "string" } } }
 );
 
 orderSchema.pre("save", async function (next) {

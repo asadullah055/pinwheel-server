@@ -1,12 +1,13 @@
 const mongoose = require("mongoose");
+const { LIMITS, sanitizeRichText } = require("../utils/inputSecurity");
 
 const variantSchema = new mongoose.Schema({
-  sku: { type: String, required: true },
-  price: { type: Number, required: true },
-  discountPrice: { type: Number },
+  sku: { type: String, required: true, maxlength: 150 },
+  price: { type: Number, required: true, min: 0.01, max: LIMITS.price, validate: Number.isFinite },
+  discountPrice: { type: Number, min: 0, max: LIMITS.price, validate: Number.isFinite },
   discountStartDate: { type: Date },
   discountEndDate: { type: Date },
-  stock: { type: Number, required: true },
+  stock: { type: Number, required: true, min: 0, max: LIMITS.stock, validate: Number.isSafeInteger },
   availability: { type: Boolean, default: true },
   attributes: {
     type: Map,
@@ -16,7 +17,7 @@ const variantSchema = new mongoose.Schema({
 
 const ProductSchema = new mongoose.Schema(
   {
-    productName: { type: String, required: true, trim: true },
+    productName: { type: String, required: true, trim: true, maxlength: 200 },
     category: { type: mongoose.Schema.Types.ObjectId, ref: "Category" },
     images: {
       type: [String],
@@ -27,8 +28,8 @@ const ProductSchema = new mongoose.Schema(
       },
     },
     brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand" },
-    description: { type: String, required: true },
-    shortDescription: { type: String, default: null },
+    description: { type: String, required: true, maxlength: 100000 },
+    shortDescription: { type: String, default: null, maxlength: 100000 },
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     slug: { type: String, default: "" },
     // Dimensions
@@ -61,10 +62,15 @@ const ProductSchema = new mongoose.Schema(
         values: [{ type: String }],
       },
     ],
-    variants: [variantSchema],
+    variants: { type: [variantSchema], validate: (rows) => rows.length > 0 && rows.length <= LIMITS.variants },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, optimisticConcurrency: true }
 );
+ProductSchema.pre("validate", function (next) {
+  if (this.isModified("description") && typeof this.description === "string") this.description = sanitizeRichText(this.description);
+  if (this.isModified("shortDescription") && typeof this.shortDescription === "string") this.shortDescription = sanitizeRichText(this.shortDescription);
+  next();
+});
 ProductSchema.pre("save", function (next) {
   if (this.isModified("productName")) {
     this.slug = this.productName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -141,4 +147,7 @@ ProductSchema.index(
   }
 );
 ProductSchema.index({ creator: 1, status: 1, createdAt: -1 });
+ProductSchema.index({ status: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ status: 1, category: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ slug: 1, status: 1 });
 module.exports = mongoose.model("Product", ProductSchema);

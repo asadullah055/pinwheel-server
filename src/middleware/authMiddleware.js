@@ -1,64 +1,35 @@
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const createError = require("http-errors");
+const Users = require("../model/Users");
 const { accessSecretKey } = require("../../secret");
 
+const authenticate = async (req) => {
+  const token = req.cookies?.accessToken;
+  if (!token) throw createError(401, "Please log in");
+  let decoded;
+  try { decoded = jwt.verify(token, accessSecretKey, { algorithms: ["HS256"] }); }
+  catch { throw createError(401, "Invalid or expired session. Please log in"); }
+  if (decoded.type !== "access" || !Number.isInteger(decoded.tokenVersion) || !mongoose.isObjectIdOrHexString(decoded.id)) {
+    throw createError(401, "Invalid session. Please log in");
+  }
+  const user = await Users.findById(decoded.id).select("email role +tokenVersion");
+  if (!user || Number(user.tokenVersion || 0) !== decoded.tokenVersion) {
+    throw createError(401, "Session revoked. Please log in");
+  }
+  req.id = String(user._id);
+  req.email = user.email;
+  req.role = user.role;
+  req.user = user;
+};
 const protect = async (req, res, next) => {
-  try {
-    const token = req.cookies.accessToken;
-
-    if (!token) {
-      throw createError(401, "Access token not found. Please log in.");
-    }
-
-    const decoded = jwt.verify(token, accessSecretKey);
-
-    if (!decoded) {
-      throw createError(404, "Invalid Access token. Please Log in");
-    }
-
-    req.id = decoded.id;
-    req.email = decoded.email;
-    req.role = decoded.role;
-    next();
-  } catch (error) {
-    if (error.name === "TokenExpiredError") {
-      return next(createError(401, "This session has expired. Please log in."));
-    }
-    if (error.name === "JsonWebTokenError") {
-      return next(createError(401, "Invalid token. Access denied."));
-    }
-    next(error);
-  }
+  try { await authenticate(req); next(); } catch (error) { next(error); }
 };
-
-const optionalProtect = (req, res, next) => {
-  try {
-    const token = req.cookies?.accessToken;
-
-    if (!token) {
-      return next();
-    }
-
-    const decoded = jwt.verify(token, accessSecretKey);
-
-    if (decoded) {
-      req.id = decoded.id;
-      req.email = decoded.email;
-      req.role = decoded.role;
-    }
-
-    return next();
-  } catch (error) {
-    return next();
-  }
+const optionalProtect = async (req, res, next) => {
+  if (!req.cookies?.accessToken) return next();
+  try { await authenticate(req); return next(); }
+  catch (error) { return error.status === 401 ? next() : next(error); }
 };
-
-const adminOnly = (req, res, next) => {
-  if (req.role === "admin") {
-    next();
-  } else {
-    res.status(403).json({ message: "Access denied, admin only" });
-  }
-};
-
+const adminOnly = (req, res, next) =>
+  req.role === "admin" ? next() : next(createError(403, "Access denied, admin only"));
 module.exports = { protect, optionalProtect, adminOnly };

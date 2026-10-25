@@ -2,8 +2,8 @@
   "version": 2,
   "functions": {
     "api/index.js": {
-      "maxDuration": 60,
-      "includeFiles": "src/assets/**"
+      "maxDuration": 120,
+      "includeFiles": "src/{assets/**,utils/pdfSecurity.js}"
     }
   },
   "rewrites": [

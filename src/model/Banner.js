@@ -6,6 +6,7 @@ const bannerSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      enum: ["main", "side"],
     },
     bannerURL: {
       type: String,
@@ -23,6 +24,9 @@ const bannerSchema = new mongoose.Schema(
     priority: {
       type: Number,
       default: 0,
+      min: 0,
+      max: 10000,
+      validate: Number.isSafeInteger,
     },
     startDate: {
       type: Date,
