@@ -31,6 +31,7 @@ const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sanitizeRichText = (value) => DOMPurify.sanitize(value, {
   ALLOWED_TAGS: ["p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "h2", "h3", "h4", "table", "thead", "tbody", "tr", "th", "td", "a", "hr"],
   ALLOWED_ATTR: ["href", "title", "colspan", "rowspan"],
+  ADD_URI_SAFE_ATTR: ["colspan", "rowspan"],
   ALLOW_DATA_ATTR: false,
   ALLOW_ARIA_ATTR: false,
   ALLOWED_URI_REGEXP: /^(?:https:\/\/|mailto:|\/(?!\/)|#)/i,
