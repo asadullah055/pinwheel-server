@@ -1,10 +1,27 @@
 const fs = require("fs");
 const path = require("path");
-const chromium = require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
 
 let cachedLogoDataUri = null;
 let serverlessChromiumPathPromise = null;
+let browserDependenciesPromise = null;
+
+const getBrowserDependencies = () => {
+  if (!browserDependenciesPromise) {
+    // These packages are ESM. Catalog routes must not depend on synchronous
+    // ESM interop or load browser binaries before an invoice is requested.
+    browserDependenciesPromise = Promise.all([
+      import("@sparticuz/chromium"),
+      import("puppeteer-core"),
+    ]).then(([chromium, puppeteer]) => ({
+      chromium: chromium.default || chromium,
+      puppeteer: puppeteer.default || puppeteer,
+    })).catch((error) => {
+      browserDependenciesPromise = null;
+      throw error;
+    });
+  }
+  return browserDependenciesPromise;
+};
 
 const CHROME_ENV_KEYS = [
   "PUPPETEER_EXECUTABLE_PATH",
@@ -59,7 +76,7 @@ const getServerlessChromiumExecutablePath = () => {
     // executablePath() extracts Chromium into /tmp on a cold start. Sharing
     // the promise prevents a concurrent invoice request from trying to spawn
     // the binary while the first extraction is still writing it.
-    serverlessChromiumPathPromise = chromium.executablePath().catch((error) => {
+    serverlessChromiumPathPromise = getBrowserDependencies().then(({ chromium }) => chromium.executablePath()).catch((error) => {
       serverlessChromiumPathPromise = null;
       throw error;
     });
@@ -81,6 +98,7 @@ const getInvoiceBrowserLaunchOptions = async () => {
   }
 
   if (isServerlessRuntime()) {
+    const { chromium, puppeteer } = await getBrowserDependencies();
     return {
       args: puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
       defaultViewport: chromium.defaultViewport,
@@ -104,6 +122,7 @@ const isExecutableBusyError = (error) =>
   /(?:spawn\s+)?ETXTBSY/i.test(error?.message || "");
 
 const launchInvoiceBrowser = async () => {
+  const { puppeteer } = await getBrowserDependencies();
   const launchOptions = await getInvoiceBrowserLaunchOptions();
   const configuredAttempts = Number(process.env.INVOICE_BROWSER_LAUNCH_ATTEMPTS);
   const maxAttempts =

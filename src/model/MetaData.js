@@ -1,6 +1,6 @@
-import mongoose from 'mongoose';
+const mongoose = require("mongoose");
 
-export const MetaDataSchema = new mongoose.Schema(
+const MetaDataSchema = new mongoose.Schema(
   {
      // SEO
     seoTitle: { type: String, required: true },
@@ -11,3 +11,5 @@ export const MetaDataSchema = new mongoose.Schema(
     versionKey: false,
   }
 );
+
+module.exports = { MetaDataSchema };
