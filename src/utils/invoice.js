@@ -100,7 +100,8 @@ const getInvoiceBrowserLaunchOptions = async () => {
   if (isServerlessRuntime()) {
     const { chromium, puppeteer } = await getBrowserDependencies();
     return {
-      args: puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
+      // Puppeteer 25 returns a Promise; launch() requires the resolved string[].
+      args: await puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
       defaultViewport: chromium.defaultViewport,
       executablePath: await getServerlessChromiumExecutablePath(),
       headless: "shell",

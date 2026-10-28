@@ -487,6 +487,8 @@ const getPublicProducts = async (req, res, next) => {
     const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
     const categoryId = String(req.query.category || "").trim();
+    const brandId = String(req.query.brand || "").trim();
+    const sellerId = String(req.query.seller || "").trim();
     const search = String(req.query.search || req.query.q || "").trim().slice(0, 100);
 
     const filter = { status: "published", variants: { $elemMatch: { availability: true } } };
@@ -497,6 +499,22 @@ const getPublicProducts = async (req, res, next) => {
       }
 
       filter.category = categoryId;
+    }
+
+    if (brandId) {
+      if (!mongoose.Types.ObjectId.isValid(brandId)) {
+        throw createError(400, "Invalid brand id");
+      }
+
+      filter.brand = brandId;
+    }
+
+    if (sellerId) {
+      if (!mongoose.Types.ObjectId.isValid(sellerId)) {
+        throw createError(400, "Invalid seller id");
+      }
+
+      filter.creator = sellerId;
     }
 
     if (search) {

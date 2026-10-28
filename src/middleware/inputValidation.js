@@ -40,7 +40,7 @@ const contracts = {
   multipart: { multipart: true }, multipartId: { multipart: true, params: idParams },
   list: { query: z.object(pagination).strict() },
   products: { query: z.object({ ...pagination, sku: text(100).optional(), status: z.enum(["published", "unpublished"]).optional() }).strict() },
-  publicProducts: { query: z.object({ ...pagination, category: objectId.optional(), search: text(100).optional(), q: text(100).optional() }).strict() },
+  publicProducts: { query: z.object({ ...pagination, category: objectId.optional(), brand: objectId.optional(), seller: objectId.optional(), search: text(100).optional(), q: text(100).optional() }).strict() },
   slug: { params: z.object({ slug: z.string().min(1).max(250).regex(/^[a-z\d-]+$/) }).strict() },
   productStatus: { params: idParams, body: z.object({ status: z.enum(["published", "unpublished"]) }).strict() },
   quickProduct: { body: z.object({ id: objectId, variants: z.array(quickVariant).min(1).max(LIMITS.variants) }).strict().refine((v) => new Set(v.variants.map((row) => row._id)).size === v.variants.length, "Duplicate variants") },

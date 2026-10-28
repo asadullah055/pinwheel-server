@@ -158,6 +158,75 @@ test("public cards return only listing data and keep pagination, search and visi
   assert.equal(detail.product.images.length, 2);
 });
 
+test("public brand listings filter by exact brand, paginate and preserve visibility and other filters", async () => {
+  const owner = await user();
+  const brand = new mongoose.Types.ObjectId();
+  const category = new mongoose.Types.ObjectId();
+  const first = await makeProduct(owner, { brand, category, productName: "Brand chair one" });
+  const second = await makeProduct(owner, { brand, category, productName: "Brand chair two" });
+  await makeProduct(owner, { brand, category: new mongoose.Types.ObjectId(), productName: "Brand table" });
+  await makeProduct(owner, { brand: new mongoose.Types.ObjectId(), category, productName: "Brand chair other" });
+  await makeProduct(owner, { brand, category, status: "unpublished" });
+  await makeProduct(owner, { brand, category, variants: [{ sku: "OFF", price: 100, stock: 1, availability: false }] });
+
+  const listing = async (query) => {
+    const response = await read(`/api/product/publicProducts?brand=${brand}&${query}`);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const all = await listing("");
+  assert.equal(all.totalProducts, 3);
+  const pageOne = await listing(`category=${category}&search=chair&limit=1&page=1`);
+  const pageTwo = await listing(`category=${category}&search=chair&limit=1&page=2`);
+  assert.equal(pageOne.totalProducts, 2);
+  assert.equal(pageOne.totalPages, 2);
+  assert.deepEqual(new Set([pageOne.products[0]._id, pageTwo.products[0]._id]), new Set([String(first._id), String(second._id)]));
+  const empty = await listing("search=nonexistent");
+  assert.equal(empty.totalProducts, 0);
+  assert.deepEqual(empty.products, []);
+  const unknown = await (await read(`/api/product/publicProducts?brand=${new mongoose.Types.ObjectId()}`)).json();
+  assert.equal(unknown.totalProducts, 0);
+  for (const query of ["brand=bad", `brand=${brand}&brand=${brand}`, "brand[$ne]=x"]) {
+    assert.equal((await read(`/api/product/publicProducts?${query}`)).status, 400);
+  }
+});
+
+test("public seller listings isolate the seller's products and preserve pagination and filters", async () => {
+  const owner = await user({ shopName: "AI Craft" });
+  const other = await user({ email: "other@example.invalid", shopName: "AI Craft" });
+  const brand = new mongoose.Types.ObjectId();
+  const category = new mongoose.Types.ObjectId();
+  const first = await makeProduct(owner, { brand, category, productName: "Seller chair one" });
+  const second = await makeProduct(owner, { brand, category, productName: "Seller chair two" });
+  await makeProduct(owner, { productName: "Seller table" });
+  await makeProduct(other, { brand, category, productName: "Seller chair other" });
+  await makeProduct(owner, { brand, category, status: "unpublished" });
+  await makeProduct(owner, { brand, category, variants: [{ sku: "OFF", price: 100, stock: 1, availability: false }] });
+
+  const listing = async (query) => {
+    const response = await read(`/api/product/publicProducts?seller=${owner._id}&${query}`);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const all = await listing("");
+  assert.equal(all.totalProducts, 3);
+  assert.ok(all.products.every((product) => product.creator._id === String(owner._id)));
+  const filters = `brand=${brand}&category=${category}&search=chair&limit=1`;
+  const pageOne = await listing(`${filters}&page=1`);
+  const pageTwo = await listing(`${filters}&page=2`);
+  assert.equal(pageOne.totalProducts, 2);
+  assert.equal(pageOne.totalPages, 2);
+  assert.deepEqual(new Set([pageOne.products[0]._id, pageTwo.products[0]._id]), new Set([String(first._id), String(second._id)]));
+  const empty = await listing("search=nonexistent");
+  assert.equal(empty.totalProducts, 0);
+  assert.deepEqual(empty.products, []);
+  const unknown = await (await read(`/api/product/publicProducts?seller=${new mongoose.Types.ObjectId()}`)).json();
+  assert.equal(unknown.totalProducts, 0);
+  for (const query of ["seller=bad", `seller=${owner._id}&seller=${other._id}`, "seller[$ne]=x"]) {
+    assert.equal((await read(`/api/product/publicProducts?${query}`)).status, 400);
+  }
+});
+
 test("password change hashes the password and revokes old access and refresh tokens", async () => {
   const account = await user(); const oldCookie = await cookie(account);
   const refreshCookie = `refreshToken=${await generateRefreshToken(account)}`;

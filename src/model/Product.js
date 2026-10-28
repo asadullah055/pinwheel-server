@@ -149,5 +149,6 @@ ProductSchema.index(
 ProductSchema.index({ creator: 1, status: 1, createdAt: -1 });
 ProductSchema.index({ status: 1, createdAt: -1, _id: -1 });
 ProductSchema.index({ status: 1, category: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ status: 1, brand: 1, createdAt: -1, _id: -1 });
 ProductSchema.index({ slug: 1, status: 1 });
 module.exports = mongoose.model("Product", ProductSchema);
